@@ -1,0 +1,37 @@
+#!/bin/bash
+
+set -euo pipefail
+
+echo "Linking sysusers config..."
+
+mkdir -p /etc/sysusers.d
+
+if [ ! -f /etc/sysusers.d/{{ .Name }}.conf ]; then
+    ln -s "{{ .Path }}/conf/{{ .Name }}.conf" /etc/sysusers.d/{{ .Name }}.conf
+fi
+
+echo "Creating user..."
+systemd-sysusers
+
+echo "Linking unit..."
+rm /etc/systemd/system/{{ .Name }}.service
+
+systemctl link "{{ .Path }}/conf/{{ .Name }}.service"
+
+echo "Reloading daemon..."
+systemctl daemon-reload
+systemctl enable {{ .Name }}
+
+echo "Fixing initial permissions..."
+chown -R {{ .Name }}:{{ .Name }} "{{ .Path }}"
+
+find "{{ .Path }}" -type d -exec chmod 755 {} +
+find "{{ .Path }}" -type f -exec chmod 644 {} +
+
+chmod +x "{{ .Path }}/{{ .Name }}"
+
+echo "Setup complete, starting service..."
+
+service {{ .Name }} start
+
+echo "Done."
