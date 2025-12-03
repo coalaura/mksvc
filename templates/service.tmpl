@@ -20,7 +20,7 @@ StandardInput=null
 ProtectSystem=strict
 {{ if .NeedsWritableFiles }}ReadWritePaths={{ else }}ReadOnlyPaths={{ end }}{{ .Path }}
 ProtectHome=yes
-PrivateTmp=no
+PrivateTmp=yes
 PrivateMounts=yes
 UMask={{ if .NeedsWritableFiles }}0022{{ else }}0077{{ end }}
 
