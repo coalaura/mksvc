@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"os/signal"
 	"path/filepath"
 
 	"github.com/alecthomas/kong"
@@ -17,6 +18,16 @@ type Arguments struct {
 }
 
 func main() {
+	ch := make(chan os.Signal, 1)
+	signal.Notify(ch, os.Interrupt)
+
+	go func() {
+		<-ch
+
+		log.Close()
+		os.Exit(1)
+	}()
+
 	var args Arguments
 
 	kong.Parse(&args)
