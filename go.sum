@@ -4,8 +4,8 @@ github.com/alecthomas/kong v1.13.0 h1:5e/7XC3ugvhP1DQBmTS+WuHtCbcv44hsohMgcvVxSr
 github.com/alecthomas/kong v1.13.0/go.mod h1:wrlbXem1CWqUV5Vbmss5ISYhsVPkBb1Yo7YKJghju2I=
 github.com/alecthomas/repr v0.5.2 h1:SU73FTI9D1P5UNtvseffFSGmdNci/O6RsqzeXJtP0Qs=
 github.com/alecthomas/repr v0.5.2/go.mod h1:Fr0507jx4eOXV7AlPV6AVZLYrLIuIeSOWtW57eE/O/4=
-github.com/coalaura/plain v1.1.3 h1:zRXUWtILG1GtH1YxngATUHmQjPM44g8ivj39UrJfwtM=
-github.com/coalaura/plain v1.1.3/go.mod h1:jcMR/C9RDdl8EQOHD4d/u8DoO1AI00fLDJfdfmrCFNA=
+github.com/coalaura/plain v1.1.4 h1:J1YKSYDHQS/fNzbGcpxm5kiXWdY42SlPXmpLksYrYic=
+github.com/coalaura/plain v1.1.4/go.mod h1:jcMR/C9RDdl8EQOHD4d/u8DoO1AI00fLDJfdfmrCFNA=
 github.com/felixge/httpsnoop v1.0.4 h1:NFTV2Zj1bL4mc9sqWACXbQFVBBg2W3GPvqp8/ESS2Wg=
 github.com/felixge/httpsnoop v1.0.4/go.mod h1:m8KPJKqk1gH5J9DgRY2ASl2lWCfGKXixSwevea8zH2U=
 github.com/hexops/gotextdiff v1.0.3 h1:gitA9+qJrrTCsiCl7+kh75nPqQt1cx4ZkudSTLoUqJM=
