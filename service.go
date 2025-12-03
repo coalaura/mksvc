@@ -32,7 +32,6 @@ type ServiceConfig struct {
 	NeedsListening     bool
 	NeedsExecMemory    bool
 	NeedsWritableFiles bool
-	NeedsPublicTmp     bool
 	NeedsDevices       bool
 	NeedsSubprocess    bool
 }
@@ -63,7 +62,6 @@ func NewServiceConfig(name, path string) *ServiceConfig {
 		NeedsListening:     true,
 		NeedsExecMemory:    false,
 		NeedsWritableFiles: true,
-		NeedsPublicTmp:     false,
 		NeedsDevices:       false,
 		NeedsSubprocess:    false,
 	}

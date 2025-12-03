@@ -20,34 +20,12 @@ func main() {
 	log.HandleInterrupt()
 
 	var args Arguments
-
 	kong.Parse(&args)
 
 	cfg := NewServiceConfig(args.Name, args.Path)
 
 	if args.Interactive {
-		var err error
-
-		cfg.NeedsNetwork, err = log.Confirm("NeedsNetwork", cfg.NeedsNetwork)
-		log.MustFail(err)
-
-		cfg.NeedsListening, err = log.Confirm("NeedsListening", cfg.NeedsListening)
-		log.MustFail(err)
-
-		cfg.NeedsExecMemory, err = log.Confirm("NeedsExecMemory", cfg.NeedsExecMemory)
-		log.MustFail(err)
-
-		cfg.NeedsWritableFiles, err = log.Confirm("NeedsWritableFiles", cfg.NeedsWritableFiles)
-		log.MustFail(err)
-
-		cfg.NeedsPublicTmp, err = log.Confirm("NeedsPublicTmp", cfg.NeedsPublicTmp)
-		log.MustFail(err)
-
-		cfg.NeedsDevices, err = log.Confirm("NeedsDevices", cfg.NeedsDevices)
-		log.MustFail(err)
-
-		cfg.NeedsSubprocess, err = log.Confirm("NeedsSubprocess", cfg.NeedsSubprocess)
-		log.MustFail(err)
+		configure(cfg)
 	}
 
 	log.Println("Writing configs...")
@@ -67,4 +45,58 @@ func main() {
 	log.MustFail(err)
 
 	log.Println("Done.")
+}
+
+func configure(cfg *ServiceConfig) {
+	log.Println("Interactive Configuration")
+	log.Println("Press Enter to accept defaults.")
+
+	cfg.NeedsNetwork = ask(
+		"Network Access",
+		"Required for internet access or communicating with other servers.",
+		cfg.NeedsNetwork,
+	)
+
+	cfg.NeedsListening = ask(
+		"Server Mode (Listening)",
+		"Required if this service listens on a port (web servers, databases).",
+		cfg.NeedsListening,
+	)
+
+	cfg.NeedsExecMemory = ask(
+		"JIT/Executable Memory",
+		"Required for runtimes like Java, Node.js, Python, or Go plugins.",
+		cfg.NeedsExecMemory,
+	)
+
+	cfg.NeedsWritableFiles = ask(
+		"Writable Working Directory",
+		"Allows the service to write files/logs to its own folder.",
+		cfg.NeedsWritableFiles,
+	)
+
+	cfg.NeedsDevices = ask(
+		"Hardware Devices",
+		"Grants access to /dev (USB, GPU, serial ports).",
+		cfg.NeedsDevices,
+	)
+
+	cfg.NeedsSubprocess = ask(
+		"Subprocesses",
+		"Allows the service to spawn shell commands or other binaries.",
+		cfg.NeedsSubprocess,
+	)
+
+	log.Println()
+}
+
+func ask(title, desc string, def bool) bool {
+	log.Println()
+	log.Println(title)
+	log.Printf("  %s\n", desc)
+
+	val, err := log.Confirm("  Enable", def)
+	log.MustFail(err)
+
+	return val
 }

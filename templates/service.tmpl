@@ -20,9 +20,9 @@ StandardInput=null
 ProtectSystem=strict
 {{ if .NeedsWritableFiles }}ReadWritePaths={{ else }}ReadOnlyPaths={{ end }}{{ .Path }}
 ProtectHome=yes
-PrivateTmp={{ if .NeedsPublicTmp }}no{{ else }}yes{{ end }}
+PrivateTmp=no
 PrivateMounts=yes
-UMask={{ if .NeedsWritableFiles }}0027{{ else }}0077{{ end }}
+UMask={{ if .NeedsWritableFiles }}0022{{ else }}0077{{ end }}
 
 # Kernel & Hardware Protection
 PrivateDevices={{ if .NeedsDevices }}no{{ else }}yes{{ end }}
