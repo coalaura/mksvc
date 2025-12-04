@@ -6,10 +6,10 @@ A hardened, opinionated Systemd service generator for modern Linux deployments.
 
 ## Installation
 
-Download the latest binary from the [Releases Page](https://github.com/coalaura/mksvc/releases), or install via Go:
+Download the latest binary from the [Releases Page](https://github.com/coalaura/mksvc/releases), or install a prebuilt binary with one command:
 
 ```bash
-go install github.com/coalaura/mksvc@latest
+curl -sL https://src.w2k.sh/mksvc/install.sh | sh
 ```
 
 ## Usage
