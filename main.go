@@ -23,6 +23,14 @@ func main() {
 	kong.Parse(&args)
 
 	cfg := NewServiceConfig(args.Name, args.Path)
+	servicePath := filepath.Join("conf", args.Name+".service")
+
+	err := cfg.PreserveCustom(servicePath)
+	if err != nil {
+		log.Printf("Warning: Could not read existing config: %v\n", err)
+	} else if len(cfg.Custom) > 0 {
+		log.Printf("Found %d custom configuration lines.\n", len(cfg.Custom))
+	}
 
 	if args.Interactive {
 		configure(cfg)
@@ -35,7 +43,7 @@ func main() {
 		log.MustFail(err)
 	}
 
-	err := cfg.WriteService(filepath.Join("conf", "{name}.service"), ServiceTmpl)
+	err = cfg.WriteService(servicePath, ServiceTmpl)
 	log.MustFail(err)
 
 	err = cfg.WriteService(filepath.Join("conf", "{name}.conf"), UserTmpl)
@@ -75,6 +83,12 @@ func configure(cfg *ServiceConfig) {
 		cfg.NeedsWritableFiles,
 	)
 
+	cfg.NeedsRuntimeDir = ask(
+		"Runtime Directory (IPC)",
+		"Creates /run/"+cfg.Name+" for sockets or PID files.",
+		cfg.NeedsRuntimeDir,
+	)
+
 	cfg.NeedsDevices = ask(
 		"Hardware Devices",
 		"Grants access to /dev (USB, GPU, serial ports).",
@@ -87,7 +101,7 @@ func configure(cfg *ServiceConfig) {
 		cfg.NeedsSubprocess,
 	)
 
-	log.Println()
+	log.Println("")
 }
 
 func ask(title, desc string, def bool) bool {

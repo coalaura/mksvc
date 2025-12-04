@@ -1,6 +1,8 @@
 [Unit]
 Description={{ .Label }}
-After=network-online.target
+After={{ .After }}
+{{- if .Requires }}
+Requires={{ .Requires }}{{ end }}
 StartLimitBurst=10
 StartLimitIntervalSec=60
 
@@ -9,6 +11,8 @@ Type=simple
 User={{ .Name }}
 Group={{ .Name }}
 
+{{ if .NeedsRuntimeDir }}RuntimeDirectory={{ .Name }}
+{{ end -}}
 WorkingDirectory={{ .Path }}
 ExecStart={{ .Path }}/{{ .Name }}
 
@@ -54,16 +58,29 @@ MemoryDenyWriteExecute={{ if .NeedsExecMemory }}no{{ else }}yes{{ end }}
 # Network Restriction
 RestrictAddressFamilies=AF_UNIX{{ if .NeedsNetwork }} AF_INET AF_INET6{{ end }}
 PrivateNetwork={{ if .NeedsNetwork }}no{{ else }}yes{{ end }}
-{{ if and .NeedsNetwork (not .NeedsListening) }}SocketBindDeny=any{{ end }}
+{{- if and .NeedsNetwork (not .NeedsListening) }}
+SocketBindDeny=any{{ end }}
 
 # Syscall Filtering
 CapabilityBoundingSet=
 SystemCallErrorNumber=EPERM
-SystemCallFilter=~@clock @cpu-emulation @debug @module @mount @obsolete @reboot @swap @resources @raw-io @privileged @keyring @pkey @memlock{{ if not .NeedsSubprocess }} @process{{ end }}
+SystemCallFilter=~@clock @cpu-emulation @debug @module @mount @obsolete @reboot @swap @resources @raw-io @privileged @keyring @pkey @memlock
+{{- if not .NeedsSubprocess }}
+InaccessiblePaths=-/bin -/usr/bin -/sbin -/usr/sbin -/usr/local/bin{{ end }}
 
 Restart=always
 RestartSec=3
 RuntimeMaxSec=5d
+{{- if .Defaults }}
+
+# Defaults
+{{ .FormatAttributes .Defaults }}
+{{- end }}
+{{- if .Custom }}
+
+# Custom Overrides
+{{ .FormatAttributes .Custom }}
+{{- end }}
 
 [Install]
 WantedBy=multi-user.target
