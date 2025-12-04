@@ -41,7 +41,6 @@ jobs:
         go build \
           -trimpath \
           -buildvcs=false \
-          -ldflags "-s -w -X 'main.Version=${{ github.ref_name }}'" \
           -o "$OUT" .
 
     - name: Upload artifact
