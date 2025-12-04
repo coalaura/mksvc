@@ -74,12 +74,12 @@ RuntimeMaxSec=5d
 {{- if .Defaults }}
 
 # Defaults
-{{ .FormatAttributes .Defaults }}
+{{ .FormatDefaults }}
 {{- end }}
 {{- if .Custom }}
 
-# Custom Overrides
-{{ .FormatAttributes .Custom }}
+# Custom
+{{ .FormatCustom }}
 {{- end }}
 
 [Install]

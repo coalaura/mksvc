@@ -69,7 +69,7 @@ type ServiceConfig struct {
 	NeedsSubprocess    bool
 
 	Defaults map[string]string
-	Custom   map[string]string
+	Custom   map[string][]string
 }
 
 func NewServiceConfig(name, path string) *ServiceConfig {
@@ -111,7 +111,7 @@ func NewServiceConfig(name, path string) *ServiceConfig {
 			"TimeoutStartSec": "300",
 			"TimeoutStopSec":  "300",
 		},
-		Custom: make(map[string]string),
+		Custom: make(map[string][]string),
 	}
 }
 
@@ -176,7 +176,7 @@ func (cfg *ServiceConfig) PreserveCustom(path string) error {
 			}
 		} else if inService {
 			if !managed[key] && cfg.Defaults[key] != value {
-				cfg.Custom[key] = value
+				cfg.Custom[key] = append(cfg.Custom[key], value)
 
 				delete(cfg.Defaults, key)
 			}
@@ -186,14 +186,34 @@ func (cfg *ServiceConfig) PreserveCustom(path string) error {
 	return scanner.Err()
 }
 
-func (cfg *ServiceConfig) FormatAttributes(source map[string]string) string {
-	lines := make([]string, 0, len(source))
+func (cfg *ServiceConfig) FormatDefaults() string {
+	lines := make([]string, 0, len(cfg.Defaults))
 
-	for key, value := range source {
+	for key, value := range cfg.Defaults {
 		lines = append(lines, key+"="+value)
 	}
 
 	sort.Strings(lines)
+
+	return strings.Join(lines, "\n")
+}
+
+func (cfg *ServiceConfig) FormatCustom() string {
+	keys := make([]string, 0, len(cfg.Custom))
+
+	for k := range cfg.Custom {
+		keys = append(keys, k)
+	}
+
+	sort.Strings(keys)
+
+	var lines []string
+
+	for _, k := range keys {
+		for _, v := range cfg.Custom[k] {
+			lines = append(lines, k+"="+v)
+		}
+	}
 
 	return strings.Join(lines, "\n")
 }
