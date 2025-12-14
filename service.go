@@ -66,6 +66,7 @@ type ServiceConfig struct {
 	NeedsWritableFiles bool
 	NeedsRuntimeDir    bool
 	NeedsDevices       bool
+	FullDevices        bool
 	NeedsSubprocess    bool
 
 	Defaults map[string]string
@@ -102,6 +103,7 @@ func NewServiceConfig(name, path string) *ServiceConfig {
 		NeedsWritableFiles: true,
 		NeedsRuntimeDir:    false,
 		NeedsDevices:       false,
+		FullDevices:        false,
 		NeedsSubprocess:    false,
 
 		Defaults: map[string]string{
@@ -184,6 +186,27 @@ func (cfg *ServiceConfig) PreserveCustom(path string) error {
 	}
 
 	return scanner.Err()
+}
+
+func (cfg *ServiceConfig) ApplyDeviceDefaults() {
+	if !cfg.NeedsDevices {
+		return
+	}
+
+	if _, exists := cfg.Custom["SupplementaryGroups"]; !exists {
+		cfg.Custom["SupplementaryGroups"] = []string{"dialout", "plugdev"}
+	}
+
+	if cfg.FullDevices {
+		return
+	}
+
+	if _, exists := cfg.Custom["DeviceAllow"]; !exists {
+		cfg.Custom["DeviceAllow"] = []string{
+			"char-usb rwm",
+			"char-tty rwm",
+		}
+	}
 }
 
 func (cfg *ServiceConfig) FormatDefaults() string {

@@ -2,6 +2,13 @@
 
 set -euo pipefail
 
+# --- HARDWARE PERMISSIONS ---
+# If this service requires hardware access, you likely need a udev rule
+# to assign ownership to the '{{ .Name }}' user.
+# Example: /etc/udev/rules.d/99-{{ .Name }}.rules
+# SUBSYSTEM=="usb", ATTRS{idVendor}=="XXXX", OWNER="{{ .Name }}"
+# ----------------------------
+
 echo "Linking sysusers config..."
 
 mkdir -p /etc/sysusers.d
@@ -34,6 +41,6 @@ chmod +x "{{ .Path }}/{{ .Name }}"
 
 echo "Setup complete, starting service..."
 
-service {{ .Name }} start
+service {{ .Name }} restart
 
 echo "Done."

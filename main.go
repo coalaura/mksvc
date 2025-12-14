@@ -36,6 +36,8 @@ func main() {
 		configure(cfg)
 	}
 
+	cfg.ApplyDeviceDefaults()
+
 	log.Println("Writing configs...")
 
 	if _, err := os.Stat("conf"); os.IsNotExist(err) {
@@ -94,6 +96,14 @@ func configure(cfg *ServiceConfig) {
 		"Grants access to /dev (USB, GPU, serial ports).",
 		cfg.NeedsDevices,
 	)
+
+	if cfg.NeedsDevices {
+		cfg.FullDevices = ask(
+			"Complex Device Access?",
+			"Enable if using libusb, raw HID, or if standard device rules fail.\n  (Disables Systemd device sandboxing; relies on file permissions/udev).",
+			cfg.FullDevices,
+		)
+	}
 
 	cfg.NeedsSubprocess = ask(
 		"Subprocesses",

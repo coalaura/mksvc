@@ -30,7 +30,7 @@ UMask={{ if .NeedsWritableFiles }}0022{{ else }}0077{{ end }}
 
 # Kernel & Hardware Protection
 PrivateDevices={{ if .NeedsDevices }}no{{ else }}yes{{ end }}
-DevicePolicy={{ if .NeedsDevices }}auto{{ else }}closed{{ end }}
+DevicePolicy={{ if .NeedsDevices }}{{ if .FullDevices }}none{{ else }}closed{{ end }}{{ else }}auto{{ end }}
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectKernelLogs=yes
@@ -56,7 +56,7 @@ KeyringMode=private
 MemoryDenyWriteExecute={{ if .NeedsExecMemory }}no{{ else }}yes{{ end }}
 
 # Network Restriction
-RestrictAddressFamilies=AF_UNIX{{ if .NeedsNetwork }} AF_INET AF_INET6{{ end }}
+RestrictAddressFamilies=AF_UNIX{{ if .NeedsNetwork }} AF_INET AF_INET6{{ end }}{{ if .NeedsDevices }} AF_NETLINK{{ end }}
 PrivateNetwork={{ if .NeedsNetwork }}no{{ else }}yes{{ end }}
 {{- if and .NeedsNetwork (not .NeedsListening) }}
 SocketBindDeny=any{{ end }}
@@ -64,7 +64,7 @@ SocketBindDeny=any{{ end }}
 # Syscall Filtering
 CapabilityBoundingSet=
 SystemCallErrorNumber=EPERM
-SystemCallFilter=~@clock @cpu-emulation @debug @module @mount @obsolete @reboot @swap @resources @raw-io @privileged @keyring @pkey @memlock
+SystemCallFilter=~@clock @cpu-emulation @debug @module @mount @obsolete @reboot @swap @resources {{ if not .NeedsDevices }} @raw-io{{ end }}@privileged @keyring @pkey @memlock
 {{- if not .NeedsSubprocess }}
 InaccessiblePaths=-/bin -/usr/bin -/sbin -/usr/sbin -/usr/local/bin{{ end }}
 
