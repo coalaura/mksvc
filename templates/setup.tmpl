@@ -14,7 +14,9 @@ echo "Creating user..."
 systemd-sysusers
 
 echo "Linking unit..."
-rm /etc/systemd/system/{{ .Name }}.service
+if [ -f /etc/systemd/system/{{ .Name }}.service ]; then
+    rm /etc/systemd/system/{{ .Name }}.service
+fi
 
 systemctl link "{{ .Path }}/conf/{{ .Name }}.service"
 
