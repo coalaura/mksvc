@@ -30,7 +30,7 @@ UMask={{ if .NeedsWritableFiles }}0022{{ else }}0077{{ end }}
 
 # Kernel & Hardware Protection
 PrivateDevices={{ if .NeedsDevices }}no{{ else }}yes{{ end }}
-DevicePolicy={{ if .NeedsDevices }}{{ if .FullDevices }}none{{ else }}closed{{ end }}{{ else }}auto{{ end }}
+DevicePolicy={{ if .NeedsDevices }}{{ if .FullDevices }}none{{ else }}auto{{ end }}{{ else }}closed{{ end }}
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectKernelLogs=yes
