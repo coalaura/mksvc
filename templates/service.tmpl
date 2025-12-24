@@ -64,7 +64,7 @@ SocketBindDeny=any{{ end }}
 # Syscall Filtering
 CapabilityBoundingSet=
 SystemCallErrorNumber=EPERM
-SystemCallFilter=~@clock @cpu-emulation @debug @module @mount @obsolete @reboot @swap @resources{{ if not .NeedsDevices }} @raw-io{{ end }}@privileged @keyring @pkey @memlock
+SystemCallFilter=~@clock @cpu-emulation @debug @module @mount @obsolete @reboot @swap @resources{{ if not .NeedsDevices }} @raw-io{{ end }} @privileged @keyring @pkey @memlock
 {{- if not .NeedsSubprocess }}
 InaccessiblePaths=-/bin -/usr/bin -/sbin -/usr/sbin -/usr/local/bin{{ end }}
 
