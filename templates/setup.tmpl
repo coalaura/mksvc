@@ -13,14 +13,18 @@ echo "Linking sysusers config..."
 
 mkdir -p /etc/sysusers.d
 
-if [ ! -f /etc/sysusers.d/{{ .Name }}.conf ]; then
-    ln -s "{{ .Path }}/conf/{{ .Name }}.conf" /etc/sysusers.d/{{ .Name }}.conf
+if [ -f /etc/sysusers.d/{{ .Name }}.conf ]; then
+    rm /etc/sysusers.d/{{ .Name }}.conf
 fi
 
+ln -s "{{ .Path }}/conf/{{ .Name }}.conf" /etc/sysusers.d/{{ .Name }}.conf
+
 echo "Creating user..."
+
 systemd-sysusers
 
 echo "Linking unit..."
+
 if [ -f /etc/systemd/system/{{ .Name }}.service ]; then
     rm /etc/systemd/system/{{ .Name }}.service
 fi
@@ -28,10 +32,12 @@ fi
 systemctl link "{{ .Path }}/conf/{{ .Name }}.service"
 
 echo "Reloading daemon..."
+
 systemctl daemon-reload
 systemctl enable {{ .Name }}
 
 echo "Fixing initial permissions..."
+
 chown -R {{ .Name }}:{{ .Name }} "{{ .Path }}"
 
 find "{{ .Path }}" -type d -exec chmod 755 {} +
