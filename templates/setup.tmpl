@@ -50,6 +50,12 @@ systemctl enable {{ .Name }}
 
 echo "Fixing initial permissions..."
 
+{{- if .SeparateLogDir }}
+
+mkdir -p "{{ .Path }}/logs"
+
+{{ end -}}
+
 chown -R {{ .Name }}:{{ .Name }} "{{ .Path }}"
 
 find "{{ .Path }}" -type d -exec chmod 755 {} +

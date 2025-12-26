@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	_ "embed"
+	"iter"
 	"os"
 	"regexp"
 	"sort"
@@ -72,6 +73,7 @@ type ServiceConfig struct {
 	NeedsDevices       bool
 	FullDevices        bool
 	NeedsSubprocess    bool
+	SeparateLogDir     bool
 
 	Defaults map[string]string
 	Custom   map[string][]string
@@ -98,17 +100,18 @@ func NewServiceConfig(name, path string) *ServiceConfig {
 		Label: strings.Join(words, " "),
 		Path:  path,
 
-		After:    "network-online.target",
+		After:    "",
 		Requires: "",
 
 		NeedsNetwork:       true,
 		NeedsListening:     true,
 		NeedsExecMemory:    false,
-		NeedsWritableFiles: true,
+		NeedsWritableFiles: false,
 		NeedsRuntimeDir:    false,
 		NeedsDevices:       false,
 		FullDevices:        false,
 		NeedsSubprocess:    false,
+		SeparateLogDir:     true,
 
 		Defaults: map[string]string{
 			"LimitNOFILE":     "65536",
@@ -192,6 +195,29 @@ func (cfg *ServiceConfig) PreserveCustom(path string) error {
 	return scanner.Err()
 }
 
+func (cfg *ServiceConfig) ApplyDefaultAfter() {
+	var (
+		afters   []string
+		requires []string
+	)
+
+	if cfg.NeedsNetwork {
+		target := "network.target"
+
+		if cfg.NeedsListening {
+			target = "network-online.target"
+		}
+
+		afters = append(afters, target)
+		requires = append(requires, target)
+	} else {
+		afters = append(afters, "local-fs.target")
+	}
+
+	cfg.After = strings.TrimSpace(prependUnique(strings.FieldsSeq(cfg.After), afters))
+	cfg.Requires = strings.TrimSpace(prependUnique(strings.FieldsSeq(cfg.Requires), requires))
+}
+
 func (cfg *ServiceConfig) ApplyDeviceDefaults() {
 	if !cfg.NeedsDevices {
 		return
@@ -256,4 +282,32 @@ func (cfg *ServiceConfig) WriteService(path string, tmpl *template.Template) err
 	defer file.Close()
 
 	return tmpl.Execute(file, cfg)
+}
+
+func prependUnique(existing iter.Seq[string], defaults []string) string {
+	var result []string
+
+	found := make(map[string]bool)
+
+	for _, str := range defaults {
+		if found[str] {
+			continue
+		}
+
+		found[str] = true
+
+		result = append(result, str)
+	}
+
+	for str := range existing {
+		if found[str] || str == "" {
+			continue
+		}
+
+		found[str] = true
+
+		result = append(result, str)
+	}
+
+	return strings.Join(result, " ")
 }

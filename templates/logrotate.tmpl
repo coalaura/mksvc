@@ -1,4 +1,5 @@
-{{ .Path }}/{{ .Name }}.log {
+{{ .Path }}/{{ if .SeparateLogDir }}logs/{{ end }}{{ .Name }}.log {
+    su {{ .Name }} {{ .Name }}
     size 50M
     rotate 7
     daily

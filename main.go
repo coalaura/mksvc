@@ -25,6 +25,10 @@ func main() {
 	cfg := NewServiceConfig(args.Name, args.Path)
 	servicePath := filepath.Join("conf", args.Name+".service")
 
+	if args.Interactive {
+		configure(cfg)
+	}
+
 	err := cfg.PreserveCustom(servicePath)
 	if err != nil {
 		log.Printf("Warning: Could not read existing config: %v\n", err)
@@ -32,10 +36,7 @@ func main() {
 		log.Printf("Found %d custom configuration lines.\n", len(cfg.Custom))
 	}
 
-	if args.Interactive {
-		configure(cfg)
-	}
-
+	cfg.ApplyDefaultAfter()
 	cfg.ApplyDeviceDefaults()
 
 	log.Println("Writing configs...")
@@ -70,11 +71,15 @@ func configure(cfg *ServiceConfig) {
 		cfg.NeedsNetwork,
 	)
 
-	cfg.NeedsListening = ask(
-		"Server Mode (Listening)",
-		"Required if this service listens on a port (web servers, databases).",
-		cfg.NeedsListening,
-	)
+	if cfg.NeedsNetwork {
+		cfg.NeedsListening = ask(
+			"Server Mode (Listening)",
+			"Required if this service listens on a port (web servers, databases).",
+			cfg.NeedsListening,
+		)
+	} else {
+		cfg.NeedsListening = false
+	}
 
 	cfg.NeedsExecMemory = ask(
 		"JIT/Executable Memory",
@@ -106,12 +111,20 @@ func configure(cfg *ServiceConfig) {
 			"Enable if using libusb, raw HID, or if standard device rules fail.\n  (Disables Systemd device sandboxing; relies on file permissions/udev).",
 			cfg.FullDevices,
 		)
+	} else {
+		cfg.FullDevices = false
 	}
 
 	cfg.NeedsSubprocess = ask(
 		"Subprocesses",
 		"Allows the service to spawn shell commands or other binaries.",
 		cfg.NeedsSubprocess,
+	)
+
+	cfg.SeparateLogDir = ask(
+		"Separate Logs Directory",
+		"Place logs into their own directory inside the working directory named \"logs\".",
+		cfg.SeparateLogDir,
 	)
 
 	log.Println("")

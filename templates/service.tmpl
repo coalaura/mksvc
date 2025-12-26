@@ -1,6 +1,7 @@
 [Unit]
 Description={{ .Label }}
-After={{ .After }}
+{{- if .After }}
+After={{ .After }}{{ end }}
 {{- if .Requires }}
 Requires={{ .Requires }}{{ end }}
 StartLimitBurst=10
@@ -16,8 +17,8 @@ Group={{ .Name }}
 WorkingDirectory={{ .Path }}
 ExecStart={{ .Path }}/{{ .Name }}
 
-StandardOutput=append:{{ .Path }}/{{ .Name }}.log
-StandardError=append:{{ .Path }}/{{ .Name }}.log
+StandardOutput=append:{{ .Path }}/{{ if .SeparateLogDir }}logs/{{ end }}{{ .Name }}.log
+StandardError=append:{{ .Path }}/{{ if .SeparateLogDir }}logs/{{ end }}{{ .Name }}.log
 StandardInput=null
 
 # Filesystem Sandboxing
