@@ -8,6 +8,8 @@ import (
 	"github.com/coalaura/plain"
 )
 
+var Version = "dev"
+
 var log = plain.New()
 
 type Arguments struct {
@@ -20,8 +22,11 @@ func main() {
 	log.HandleInterrupt()
 
 	for _, arg := range os.Args {
-		if arg == "-h" || arg == "--help" {
+		switch arg {
+		case "-h", "--help":
 			help()
+		case "-v", "--version":
+			version()
 		}
 	}
 

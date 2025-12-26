@@ -9,6 +9,12 @@ import (
 //go:embed templates/help.tmpl
 var HelpStr string
 
+func version() {
+	log.Printf("\033[1mmksvc\033[0m version \033[4m%s\033[0m\n", Version)
+
+	os.Exit(0)
+}
+
 func help() {
 	t := template.Must(template.New("help").Parse(HelpStr))
 
