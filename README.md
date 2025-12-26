@@ -2,7 +2,7 @@
 
 A hardened, opinionated Systemd service generator for modern Linux deployments.
 
-`mksvc` creates secure-by-default `.service` files that lock down the filesystem, network and kernel capabilities. It manages the full lifecycle of a service configuration: generating the unit file, creating a dedicated system user and generating a setup script, while intelligently preserving manual customizations on subsequent runs.
+`mksvc` creates secure-by-default `.service` files that lock down the filesystem, network and kernel capabilities. It manages the full lifecycle of a service configuration: generating the unit file, creating a dedicated system user, configuring log rotation and generating a setup script; all while intelligently preserving manual customizations on subsequent runs.
 
 ## Installation
 
@@ -30,7 +30,8 @@ The tool creates a `conf/` directory containing:
 
 1. **`my-app.service`**: The Systemd unit file (Hardened).
 2. **`my-app.conf`**: Sysusers configuration to create the `my-app` user/group.
-3. **`setup.sh`**: An idempotent script to link units, create users and fix file permissions.
+3. **`my-app_logs.conf`**: Logrotate configuration for efficient log management.
+4. **`setup.sh`**: An idempotent script to link units, create users, configure log rotation and fix file permissions.
 
 ## Customization & Persistence
 
@@ -52,7 +53,8 @@ Running `mksvc` again will update the security sandbox settings but **keep** you
 
 ## Security Features
 
-* **Filesystem**: Root is read-only (`ProtectSystem=strict`). Only the service directory is writable (if requested).
-* **Process**: No new privileges, restricted namespaces and `execve` blocking (shells are hidden/disabled unless subprocesses are enabled).
-* **Network**: `AF_UNIX` only by default, with optional `AF_INET` toggle.
+* **Filesystem**: Root is read-only (`ProtectSystem=strict`). Working directory is read-only by default.
+* **Process**: No new privileges, restricted namespaces. Shells/subprocess capabilities are opt-in.
+* **Network**: Offline/Airgapped by default (`PrivateNetwork=yes`). Optional "Server Mode" for binding ports.
 * **Kernel**: Logs, modules and tunables are protected. `/dev` is private.
+* **Memory**: `MemoryDenyWriteExecute` enabled by default (WASM/JIT can opt-in).
