@@ -19,6 +19,12 @@ type Arguments struct {
 func main() {
 	log.HandleInterrupt()
 
+	for _, arg := range os.Args {
+		if arg == "-h" || arg == "--help" {
+			help()
+		}
+	}
+
 	var args Arguments
 	kong.Parse(&args)
 
@@ -67,14 +73,14 @@ func configure(cfg *ServiceConfig) {
 
 	cfg.NeedsNetwork = ask(
 		"Network Access",
-		"Required for internet access or communicating with other servers.",
+		"Required for internet/intranet access. Disabling creates an airgapped namespace.",
 		cfg.NeedsNetwork,
 	)
 
 	if cfg.NeedsNetwork {
 		cfg.NeedsListening = ask(
 			"Server Mode (Listening)",
-			"Required if this service listens on a port (web servers, databases).",
+			"Forces dependency on network-online.target. Required for web servers/APIs.",
 			cfg.NeedsListening,
 		)
 	} else {
@@ -83,13 +89,13 @@ func configure(cfg *ServiceConfig) {
 
 	cfg.NeedsExecMemory = ask(
 		"JIT/Executable Memory",
-		"Required for runtimes like Java, Node.js, Python, or Go plugins.",
+		"Required for Java, Node.js, Go WASM (wazero) or plugins.",
 		cfg.NeedsExecMemory,
 	)
 
 	cfg.NeedsWritableFiles = ask(
 		"Writable Working Directory",
-		"Allows the service to write files/logs to its own folder.",
+		"Allows the service to modify its own files. Not required for logging.",
 		cfg.NeedsWritableFiles,
 	)
 
@@ -108,7 +114,7 @@ func configure(cfg *ServiceConfig) {
 	if cfg.NeedsDevices {
 		cfg.FullDevices = ask(
 			"Complex Device Access?",
-			"Enable if using libusb, raw HID, or if standard device rules fail.\n  (Disables Systemd device sandboxing; relies on file permissions/udev).",
+			"Enable if using libusb, raw HID or if standard device rules fail.\n  (Disables Systemd device sandboxing; relies on file permissions/udev).",
 			cfg.FullDevices,
 		)
 	} else {
@@ -123,7 +129,7 @@ func configure(cfg *ServiceConfig) {
 
 	cfg.SeparateLogDir = ask(
 		"Separate Logs Directory",
-		"Place logs into their own directory inside the working directory named \"logs\".",
+		"Organize logs into a 'logs' subdirectory to keep the root clean.",
 		cfg.SeparateLogDir,
 	)
 

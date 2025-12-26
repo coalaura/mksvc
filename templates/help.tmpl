@@ -1,0 +1,67 @@
+{{.B}}{{.U}}NAME{{.R}}
+	mksvc - a hardened, opinionated systemd service generator
+
+{{.B}}{{.U}}SYNOPSIS{{.R}}
+	mksvc <name> <path> [options]
+
+{{.B}}{{.U}}DESCRIPTION{{.R}}
+	mksvc creates production-ready systemd environments with a focus on
+	security and minimal manual intervention. It generates service units,
+	sysusers and logrotate configs with smart dependency ordering.
+
+{{.B}}{{.U}}OPTIONS{{.R}}
+	{{.B}}-h, --help{{.R}}
+		Show this detailed manual page.
+
+	{{.B}}-i, --interactive{{.R}}
+		Configure service capabilities manually via prompts.
+
+{{.B}}{{.U}}CONFIGURATION{{.R}}
+
+	{{.B}}Network Access{{.R}} (Default: {{.B}}enabled{{.R}})
+		Controls AF_INET/AF_INET6 address families and creates a private
+		loopback-only namespace when disabled. Disabling this effectively
+		"airgaps" the service, preventing all external communication.
+		Disable for local processing tools, offline bots or crons.
+
+	{{.B}}Server Mode / Listening{{.R}} (Default: {{.B}}enabled{{.R}})
+		Controls port binding and startup ordering. When enabled, it allows
+		the service to bind to TCP/UDP ports (disables 'SocketBindDeny')
+		and ensures 'network-online.target' is reached before starting.
+		Required for web servers, databases and APIs.
+
+	{{.B}}JIT/Executable Memory{{.R}} (Default: {{.B}}disabled{{.R}})
+		Controls 'MemoryDenyWriteExecute'. Standard Go binaries do not need
+		this. Enable only for:
+		 - Runtimes with JIT (Java, Node.js, PHP)
+		 - Go libraries using WASM (e.g., wazero)
+		 - Applications using Go plugins (.so) or C-FFI
+
+	{{.B}}Writable Working Directory{{.R}} (Default: {{.B}}disabled{{.R}})
+		If disabled, the service root is mounted read-only via 'ReadOnlyPaths'.
+		This prevents compromised services from modifying their own binaries
+		or configs. Enable only if the app persists local data (e.g., SQLite).
+		{{.B}}Note:{{.R}} Logs usually do not require this (see below).
+
+	{{.B}}Runtime Directory / IPC{{.R}} (Default: {{.B}}disabled{{.R}})
+		Creates /run/<name> (tmpfs) owned by the service. Use this for
+		Unix domain sockets (.sock) or PID files to avoid polluting global
+		directories. Cleaned up automatically on stop.
+
+	{{.B}}Hardware Devices{{.R}} (Default: {{.B}}disabled{{.R}})
+		Grants access to hardware (USB, serial, GPU) and adds the user to
+		'dialout/plugdev'. Enable only if the service directly interacts
+		with physical hardware attached to the host.
+
+	{{.B}}Subprocesses{{.R}} (Default: {{.B}}disabled{{.R}})
+		Restricts the filesystem view by masking /bin, /usr/bin, etc.
+		This significantly reduces attack surface. Enable only if your
+		app shells out to external commands (e.g., ffmpeg, git).
+
+	{{.B}}Separate Logs Directory{{.R}} (Default: {{.B}}enabled{{.R}})
+		Organizes logs into <path>/logs/ instead of the root. This keeps
+		the working directory clean. Systemd handles the writes, so this
+		works even if 'Writable Working Directory' is disabled.
+
+{{.B}}{{.U}}AUTHOR{{.R}}
+	Laura <github.com/coalaura>
