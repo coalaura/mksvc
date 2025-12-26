@@ -31,6 +31,18 @@ fi
 
 systemctl link "{{ .Path }}/conf/{{ .Name }}.service"
 
+if command -v logrotate >/dev/null 2>&1; then
+    echo "Linking logrotate config..."
+
+    if [ -f /etc/logrotate.d/{{ .Name }} ]; then
+        rm /etc/logrotate.d/{{ .Name }}
+    fi
+
+    ln -s "{{ .Path }}/conf/{{ .Name }}_logs.conf" /etc/logrotate.d/{{ .Name }}
+else
+    echo "Logrotate not found, skipping..."
+fi
+
 echo "Reloading daemon..."
 
 systemctl daemon-reload

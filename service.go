@@ -22,9 +22,13 @@ var (
 	//go:embed templates/setup.tmpl
 	SetupStr string
 
-	ServiceTmpl = template.Must(template.New("service").Parse(ServiceStr))
-	UserTmpl    = template.Must(template.New("user").Parse(UserStr))
-	SetupTmpl   = template.Must(template.New("setup").Parse(SetupStr))
+	//go:embed templates/logrotate.tmpl
+	LogrotateStr string
+
+	ServiceTmpl   = template.Must(template.New("service").Parse(ServiceStr))
+	UserTmpl      = template.Must(template.New("user").Parse(UserStr))
+	SetupTmpl     = template.Must(template.New("setup").Parse(SetupStr))
+	LogrotateTmpl = template.Must(template.New("logrotate").Parse(LogrotateStr))
 
 	managed = make(map[string]bool)
 )

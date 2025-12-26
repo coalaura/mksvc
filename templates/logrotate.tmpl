@@ -1,0 +1,10 @@
+{{ .Path }}/{{ .Name }}.log {
+    size 50M
+    rotate 7
+    daily
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+}

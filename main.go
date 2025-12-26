@@ -54,6 +54,9 @@ func main() {
 	err = cfg.WriteService(filepath.Join("conf", "setup.sh"), SetupTmpl)
 	log.MustFail(err)
 
+	err = cfg.WriteService(filepath.Join("conf", "{name}_logs.conf"), LogrotateTmpl)
+	log.MustFail(err)
+
 	log.Println("Done.")
 }
 
