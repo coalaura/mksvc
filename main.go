@@ -19,7 +19,9 @@ type Arguments struct {
 }
 
 func main() {
-	log.HandleInterrupt()
+	go func() {
+		log.WaitForInterrupt(true)
+	}()
 
 	for _, arg := range os.Args {
 		switch arg {
@@ -88,6 +90,16 @@ func configure(cfg *ServiceConfig) {
 			"Forces dependency on network-online.target. Required for web servers/APIs.",
 			cfg.NeedsListening,
 		)
+
+		if cfg.NeedsListening {
+			cfg.NeedsPrivilegedPorts = ask(
+				"Privileged Ports (<1024)",
+				"Allow binding to ports below 1024 (e.g., 80/443) by granting CAP_NET_BIND_SERVICE.",
+				cfg.NeedsPrivilegedPorts,
+			)
+		} else {
+			cfg.NeedsPrivilegedPorts = false
+		}
 	} else {
 		cfg.NeedsListening = false
 	}
@@ -146,7 +158,7 @@ func ask(title, desc string, def bool) bool {
 	log.Println(title)
 	log.Printf("  %s\n", desc)
 
-	val, err := log.Confirm("  Enable", def)
+	val, err := log.ConfirmWithEcho("  Enable", def, " ")
 	log.MustFail(err)
 
 	return val

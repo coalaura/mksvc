@@ -65,15 +65,16 @@ type ServiceConfig struct {
 	After    string
 	Requires string
 
-	NeedsNetwork       bool
-	NeedsListening     bool
-	NeedsExecMemory    bool
-	NeedsWritableFiles bool
-	NeedsRuntimeDir    bool
-	NeedsDevices       bool
-	FullDevices        bool
-	NeedsSubprocess    bool
-	SeparateLogDir     bool
+	NeedsNetwork         bool
+	NeedsListening       bool
+	NeedsPrivilegedPorts bool
+	NeedsExecMemory      bool
+	NeedsWritableFiles   bool
+	NeedsRuntimeDir      bool
+	NeedsDevices         bool
+	FullDevices          bool
+	NeedsSubprocess      bool
+	SeparateLogDir       bool
 
 	Defaults map[string]string
 	Custom   map[string][]string
@@ -103,15 +104,16 @@ func NewServiceConfig(name, path string) *ServiceConfig {
 		After:    "",
 		Requires: "",
 
-		NeedsNetwork:       true,
-		NeedsListening:     true,
-		NeedsExecMemory:    false,
-		NeedsWritableFiles: false,
-		NeedsRuntimeDir:    false,
-		NeedsDevices:       false,
-		FullDevices:        false,
-		NeedsSubprocess:    false,
-		SeparateLogDir:     true,
+		NeedsNetwork:         true,
+		NeedsListening:       true,
+		NeedsPrivilegedPorts: false,
+		NeedsExecMemory:      false,
+		NeedsWritableFiles:   false,
+		NeedsRuntimeDir:      false,
+		NeedsDevices:         false,
+		FullDevices:          false,
+		NeedsSubprocess:      false,
+		SeparateLogDir:       true,
 
 		Defaults: map[string]string{
 			"LimitNOFILE":     "65536",

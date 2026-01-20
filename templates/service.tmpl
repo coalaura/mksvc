@@ -63,7 +63,12 @@ PrivateNetwork={{ if .NeedsNetwork }}no{{ else }}yes{{ end }}
 SocketBindDeny=any{{ end }}
 
 # Syscall Filtering
+{{- if .NeedsPrivilegedPorts }}
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+{{- else }}
 CapabilityBoundingSet=
+{{- end }}
 SystemCallErrorNumber=EPERM
 SystemCallFilter=~@clock @cpu-emulation @debug @module @mount @obsolete @reboot @swap @resources{{ if not .NeedsDevices }} @raw-io{{ end }} @privileged @keyring @pkey @memlock
 {{- if not .NeedsSubprocess }}
