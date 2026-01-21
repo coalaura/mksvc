@@ -12,10 +12,12 @@ Type=simple
 User={{ .Name }}
 Group={{ .Name }}
 
-{{ if .NeedsRuntimeDir }}RuntimeDirectory={{ .Name }}
+{{ if .RuntimeDir }}RuntimeDirectory={{ .Name }}
 {{ end -}}
 WorkingDirectory={{ .Path }}
 ExecStart={{ .Path }}/{{ .Name }}
+{{- if .EnvFile }}
+EnvironmentFile={{ .EnvFile }}{{ end }}
 
 StandardOutput=append:{{ .Path }}/{{ if .SeparateLogDir }}logs/{{ end }}{{ .Name }}.log
 StandardError=append:{{ .Path }}/{{ if .SeparateLogDir }}logs/{{ end }}{{ .Name }}.log
@@ -23,15 +25,15 @@ StandardInput=null
 
 # Filesystem Sandboxing
 ProtectSystem=strict
-{{ if .NeedsWritableFiles }}ReadWritePaths={{ else }}ReadOnlyPaths={{ end }}{{ .Path }}
+{{ if .WritableFiles }}ReadWritePaths={{ else }}ReadOnlyPaths={{ end }}{{ .Path }}
 ProtectHome=yes
 PrivateTmp=yes
 PrivateMounts=yes
-UMask={{ if .NeedsWritableFiles }}0022{{ else }}0077{{ end }}
+UMask={{ if .WritableFiles }}0022{{ else }}0077{{ end }}
 
 # Kernel & Hardware Protection
-PrivateDevices={{ if .NeedsDevices }}no{{ else }}yes{{ end }}
-DevicePolicy={{ if .NeedsDevices }}{{ if .FullDevices }}none{{ else }}auto{{ end }}{{ else }}closed{{ end }}
+PrivateDevices={{ if .Devices }}no{{ else }}yes{{ end }}
+DevicePolicy={{ if .Devices }}{{ if .FullDevices }}none{{ else }}auto{{ end }}{{ else }}closed{{ end }}
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectKernelLogs=yes
@@ -54,24 +56,24 @@ RestrictSUIDSGID=true
 KeyringMode=private
 
 # Memory Protection
-MemoryDenyWriteExecute={{ if .NeedsExecMemory }}no{{ else }}yes{{ end }}
+MemoryDenyWriteExecute={{ if .ExecMemory }}no{{ else }}yes{{ end }}
 
 # Network Restriction
-RestrictAddressFamilies=AF_UNIX{{ if .NeedsNetwork }} AF_INET AF_INET6{{ end }}{{ if .NeedsDevices }} AF_NETLINK{{ end }}
-PrivateNetwork={{ if .NeedsNetwork }}no{{ else }}yes{{ end }}
-{{- if and .NeedsNetwork (not .NeedsListening) }}
+RestrictAddressFamilies=AF_UNIX{{ if .Network }} AF_INET AF_INET6{{ end }}{{ if .Devices }} AF_NETLINK{{ end }}
+PrivateNetwork={{ if .Network }}no{{ else }}yes{{ end }}
+{{- if and .Network (not .Listening) }}
 SocketBindDeny=any{{ end }}
 
 # Syscall Filtering
-{{- if .NeedsPrivilegedPorts }}
+{{- if .PrivilegedPorts }}
 CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 {{- else }}
 CapabilityBoundingSet=
 {{- end }}
 SystemCallErrorNumber=EPERM
-SystemCallFilter=~@clock @cpu-emulation @debug @module @mount @obsolete @reboot @swap @resources{{ if not .NeedsDevices }} @raw-io{{ end }} @privileged @keyring @pkey @memlock
-{{- if not .NeedsSubprocess }}
+SystemCallFilter=~@clock @cpu-emulation @debug @module @mount @obsolete @reboot @swap @resources{{ if not .Devices }} @raw-io{{ end }} @privileged @keyring @pkey @memlock
+{{- if not .Subprocess }}
 InaccessiblePaths=-/bin -/usr/bin -/sbin -/usr/sbin -/usr/local/bin{{ end }}
 
 Restart=always

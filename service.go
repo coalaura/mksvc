@@ -11,79 +11,140 @@ import (
 	"strings"
 	"text/template"
 	"unicode"
+
+	"github.com/goccy/go-yaml"
 )
 
 var (
 	//go:embed templates/service.tmpl
-	ServiceStr string
+	serviceStr string
 
 	//go:embed templates/user.tmpl
-	UserStr string
+	userStr string
 
 	//go:embed templates/setup.tmpl
-	SetupStr string
+	setupStr string
+
+	//go:embed templates/uninstall.tmpl
+	uninstallStr string
 
 	//go:embed templates/logrotate.tmpl
-	LogrotateStr string
+	logrotateStr string
 
-	ServiceTmpl   = template.Must(template.New("service").Parse(ServiceStr))
-	UserTmpl      = template.Must(template.New("user").Parse(UserStr))
-	SetupTmpl     = template.Must(template.New("setup").Parse(SetupStr))
-	LogrotateTmpl = template.Must(template.New("logrotate").Parse(LogrotateStr))
+	ServiceTmpl   = template.Must(template.New("service").Parse(serviceStr))
+	UserTmpl      = template.Must(template.New("user").Parse(userStr))
+	SetupTmpl     = template.Must(template.New("setup").Parse(setupStr))
+	UninstallTmpl = template.Must(template.New("uninstall").Parse(uninstallStr))
+	LogrotateTmpl = template.Must(template.New("logrotate").Parse(logrotateStr))
 
-	managed = make(map[string]bool)
+	managedKeys = initManagedKeys()
 )
 
-func init() {
-	start := strings.Index(ServiceStr, "[Service]")
+type ServiceConfig struct {
+	Name  string `yaml:"name"`
+	Path  string `yaml:"path"`
+	Label string `yaml:"-"`
+
+	Network         bool `yaml:"network"`
+	Listening       bool `yaml:"listening"`
+	PrivilegedPorts bool `yaml:"privileged_ports"`
+	ExecMemory      bool `yaml:"exec_memory"`
+	WritableFiles   bool `yaml:"writable_files"`
+	RuntimeDir      bool `yaml:"runtime_dir"`
+	Devices         bool `yaml:"devices"`
+	FullDevices     bool `yaml:"full_devices"`
+	Subprocess      bool `yaml:"subprocess"`
+	SeparateLogDir  bool `yaml:"separate_log_dir"`
+
+	EnvFile string `yaml:"env_file,omitempty"`
+
+	After    string              `yaml:"-"`
+	Requires string              `yaml:"-"`
+	Defaults map[string]string   `yaml:"-"`
+	Custom   map[string][]string `yaml:"-"`
+}
+
+func initManagedKeys() map[string]bool {
+	keys := make(map[string]bool)
+
+	start := strings.Index(serviceStr, "[Service]")
 	if start == -1 {
 		start = 0
 	}
 
-	end := strings.Index(ServiceStr, "[Install]")
+	end := strings.Index(serviceStr, "[Install]")
 	if end == -1 {
-		end = len(ServiceStr)
+		end = len(serviceStr)
 	}
-
-	block := ServiceStr[start:end]
 
 	re := regexp.MustCompile(`(?m)(?:^|})(\w+)=`)
-	matches := re.FindAllStringSubmatch(block, -1)
 
-	for _, m := range matches {
+	for _, m := range re.FindAllStringSubmatch(serviceStr[start:end], -1) {
 		if len(m) > 1 {
-			managed[m[1]] = true
+			keys[m[1]] = true
 		}
 	}
-}
 
-type ServiceConfig struct {
-	Name  string
-	Label string
-	Path  string
-
-	After    string
-	Requires string
-
-	NeedsNetwork         bool
-	NeedsListening       bool
-	NeedsPrivilegedPorts bool
-	NeedsExecMemory      bool
-	NeedsWritableFiles   bool
-	NeedsRuntimeDir      bool
-	NeedsDevices         bool
-	FullDevices          bool
-	NeedsSubprocess      bool
-	SeparateLogDir       bool
-
-	Defaults map[string]string
-	Custom   map[string][]string
+	return keys
 }
 
 func NewServiceConfig(name, path string) *ServiceConfig {
-	name = strings.ToLower(name)
+	cleanName := cleanServiceName(name)
 
-	words := strings.FieldsFunc(name, func(r rune) bool {
+	cfg := &ServiceConfig{
+		Name: cleanName,
+		Path: path,
+
+		Network:         true,
+		Listening:       true,
+		PrivilegedPorts: false,
+		ExecMemory:      false,
+		WritableFiles:   false,
+		RuntimeDir:      false,
+		Devices:         false,
+		FullDevices:     false,
+		Subprocess:      false,
+		SeparateLogDir:  true,
+
+		Defaults: defaultLimits(),
+		Custom:   make(map[string][]string),
+	}
+
+	cfg.UpdateLabel()
+
+	return cfg
+}
+
+func LoadConfig(path string) (*ServiceConfig, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	var cfg ServiceConfig
+
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return nil, err
+	}
+
+	cfg.Defaults = defaultLimits()
+	cfg.Custom = make(map[string][]string)
+	cfg.UpdateLabel()
+
+	return &cfg, nil
+}
+
+func (cfg *ServiceConfig) SaveConfig(path string) error {
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(path, data, 0644)
+}
+
+func (cfg *ServiceConfig) UpdateLabel() {
+	words := strings.FieldsFunc(cfg.Name, func(r rune) bool {
 		return unicode.IsSpace(r) || r == '_' || r == '-'
 	})
 
@@ -92,38 +153,12 @@ func NewServiceConfig(name, path string) *ServiceConfig {
 
 		if len(runes) > 0 {
 			runes[0] = unicode.ToUpper(runes[0])
+
 			words[i] = string(runes)
 		}
 	}
 
-	return &ServiceConfig{
-		Name:  name,
-		Label: strings.Join(words, " "),
-		Path:  path,
-
-		After:    "",
-		Requires: "",
-
-		NeedsNetwork:         true,
-		NeedsListening:       true,
-		NeedsPrivilegedPorts: false,
-		NeedsExecMemory:      false,
-		NeedsWritableFiles:   false,
-		NeedsRuntimeDir:      false,
-		NeedsDevices:         false,
-		FullDevices:          false,
-		NeedsSubprocess:      false,
-		SeparateLogDir:       true,
-
-		Defaults: map[string]string{
-			"LimitNOFILE":     "65536",
-			"LimitNPROC":      "4096",
-			"LimitCORE":       "0",
-			"TimeoutStartSec": "300",
-			"TimeoutStopSec":  "300",
-		},
-		Custom: make(map[string][]string),
-	}
+	cfg.Label = strings.Join(words, " ")
 }
 
 func (cfg *ServiceConfig) PreserveCustom(path string) error {
@@ -132,6 +167,7 @@ func (cfg *ServiceConfig) PreserveCustom(path string) error {
 		if os.IsNotExist(err) {
 			return nil
 		}
+
 		return err
 	}
 
@@ -148,8 +184,8 @@ func (cfg *ServiceConfig) PreserveCustom(path string) error {
 		line := strings.TrimSpace(scanner.Text())
 
 		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
-			inUnit = (line == "[Unit]")
-			inService = (line == "[Service]")
+			inUnit = line == "[Unit]"
+			inService = line == "[Service]"
 
 			continue
 		}
@@ -169,24 +205,24 @@ func (cfg *ServiceConfig) PreserveCustom(path string) error {
 		if inUnit {
 			switch key {
 			case "After":
-				if !seenAfter {
+				if seenAfter {
+					cfg.After += " " + value
+				} else {
 					cfg.After = value
 
 					seenAfter = true
-				} else {
-					cfg.After += " " + value
 				}
 			case "Requires":
-				if !seenRequires {
+				if seenRequires {
+					cfg.Requires += " " + value
+				} else {
 					cfg.Requires = value
 
 					seenRequires = true
-				} else {
-					cfg.Requires += " " + value
 				}
 			}
 		} else if inService {
-			if !managed[key] && cfg.Defaults[key] != value {
+			if !managedKeys[key] && cfg.Defaults[key] != value {
 				cfg.Custom[key] = append(cfg.Custom[key], value)
 
 				delete(cfg.Defaults, key)
@@ -198,15 +234,12 @@ func (cfg *ServiceConfig) PreserveCustom(path string) error {
 }
 
 func (cfg *ServiceConfig) ApplyDefaultAfter() {
-	var (
-		afters   []string
-		requires []string
-	)
+	var afters, requires []string
 
-	if cfg.NeedsNetwork {
+	if cfg.Network {
 		target := "network.target"
 
-		if cfg.NeedsListening {
+		if cfg.Listening {
 			target = "network-online.target"
 		}
 
@@ -221,7 +254,7 @@ func (cfg *ServiceConfig) ApplyDefaultAfter() {
 }
 
 func (cfg *ServiceConfig) ApplyDeviceDefaults() {
-	if !cfg.NeedsDevices {
+	if !cfg.Devices {
 		return
 	}
 
@@ -242,15 +275,7 @@ func (cfg *ServiceConfig) ApplyDeviceDefaults() {
 }
 
 func (cfg *ServiceConfig) FormatDefaults() string {
-	lines := make([]string, 0, len(cfg.Defaults))
-
-	for key, value := range cfg.Defaults {
-		lines = append(lines, key+"="+value)
-	}
-
-	sort.Strings(lines)
-
-	return strings.Join(lines, "\n")
+	return formatMap(cfg.Defaults)
 }
 
 func (cfg *ServiceConfig) FormatCustom() string {
@@ -273,7 +298,7 @@ func (cfg *ServiceConfig) FormatCustom() string {
 	return strings.Join(lines, "\n")
 }
 
-func (cfg *ServiceConfig) WriteService(path string, tmpl *template.Template) error {
+func (cfg *ServiceConfig) WriteTemplate(path string, tmpl *template.Template) error {
 	path = strings.Replace(path, "{name}", cfg.Name, 1)
 
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0644)
@@ -286,30 +311,68 @@ func (cfg *ServiceConfig) WriteService(path string, tmpl *template.Template) err
 	return tmpl.Execute(file, cfg)
 }
 
-func prependUnique(existing iter.Seq[string], defaults []string) string {
-	var result []string
+func defaultLimits() map[string]string {
+	return map[string]string{
+		"LimitNOFILE":     "65536",
+		"LimitNPROC":      "4096",
+		"LimitCORE":       "0",
+		"TimeoutStartSec": "300",
+		"TimeoutStopSec":  "300",
+	}
+}
 
+func formatMap(m map[string]string) string {
+	lines := make([]string, 0, len(m))
+
+	for k, v := range m {
+		lines = append(lines, k+"="+v)
+	}
+
+	sort.Strings(lines)
+
+	return strings.Join(lines, "\n")
+}
+
+func prependUnique(existing iter.Seq[string], defaults []string) string {
 	found := make(map[string]bool)
 
+	var result []string
+
 	for _, str := range defaults {
-		if found[str] {
-			continue
+		if !found[str] {
+			found[str] = true
+
+			result = append(result, str)
 		}
-
-		found[str] = true
-
-		result = append(result, str)
 	}
 
 	for str := range existing {
-		if found[str] || str == "" {
-			continue
+		if !found[str] && str != "" {
+			found[str] = true
+
+			result = append(result, str)
 		}
-
-		found[str] = true
-
-		result = append(result, str)
 	}
 
 	return strings.Join(result, " ")
+}
+
+func cleanServiceName(name string) string {
+	name = strings.ToLower(name)
+
+	name = strings.ReplaceAll(name, ".", "_")
+	name = strings.ReplaceAll(name, " ", "_")
+
+	reg := regexp.MustCompile(`[^a-z0-9_-]`)
+	name = reg.ReplaceAllString(name, "")
+
+	if len(name) > 0 && unicode.IsDigit(rune(name[0])) {
+		name = "svc_" + name
+	}
+
+	if name == "" {
+		name = "service"
+	}
+
+	return name
 }

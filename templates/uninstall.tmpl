@@ -1,0 +1,35 @@
+#!/bin/bash
+
+set -euo pipefail
+
+echo "Stopping service..."
+systemctl stop "{{ .Name }}" 2>/dev/null || true
+
+echo "Disabling service..."
+systemctl disable "{{ .Name }}" 2>/dev/null || true
+
+echo "Removing unit file..."
+rm -f "/etc/systemd/system/{{ .Name }}.service"
+
+echo "Removing sysusers config..."
+rm -f "/etc/sysusers.d/{{ .Name }}.conf"
+
+if [ -f "/etc/logrotate.d/{{ .Name }}" ]; then
+    echo "Removing logrotate config..."
+    rm -f "/etc/logrotate.d/{{ .Name }}"
+fi
+
+echo "Reloading daemon..."
+systemctl daemon-reload
+systemctl reset-failed "{{ .Name }}" 2>/dev/null || true
+
+echo "Removing user and group..."
+if id "{{ .Name }}" &>/dev/null; then
+    userdel "{{ .Name }}" 2>/dev/null || true
+fi
+
+if getent group "{{ .Name }}" &>/dev/null; then
+    groupdel "{{ .Name }}" 2>/dev/null || true
+fi
+
+echo "Uninstall complete."

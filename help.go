@@ -11,8 +11,6 @@ var HelpStr string
 
 func version() {
 	log.Printf("\033[1mmksvc\033[0m version \033[4m%s\033[0m\n", Version)
-
-	os.Exit(0)
 }
 
 func help() {
@@ -23,6 +21,4 @@ func help() {
 		"B": "\033[1m",
 		"R": "\033[0m",
 	})
-
-	os.Exit(0)
 }

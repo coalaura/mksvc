@@ -1,76 +1,141 @@
-{{.B}}{{.U}}NAME{{.R}}
-	mksvc - a hardened, opinionated systemd service generator
+{{.B}}NAME{{.R}}
+       mksvc - hardened systemd service generator
 
-{{.B}}{{.U}}SYNOPSIS{{.R}}
-	mksvc <name> <path> [options]
+{{.B}}SYNOPSIS{{.R}}
+       {{.B}}mksvc{{.R}} <name> <path> [options]
+       {{.B}}mksvc{{.R}} [options]                  {{.U}}# if conf/svc.yml exists{{.R}}
 
-{{.B}}{{.U}}DESCRIPTION{{.R}}
-	mksvc creates production-ready systemd environments with a focus on
-	security and minimal manual intervention. It generates service units,
-	sysusers and logrotate configs with smart dependency ordering.
+{{.B}}DESCRIPTION{{.R}}
+       mksvc generates production-ready systemd unit files with secure defaults.
+       Creates service units, sysusers configs, logrotate rules and setup/un-
+       install scripts. Configuration is saved to conf/svc.yml for later runs.
 
-{{.B}}{{.U}}OPTIONS{{.R}}
-	{{.B}}-h, --help{{.R}}
-		Show this detailed manual page.
+{{.B}}OPTIONS{{.R}}
+       {{.B}}-h, --help{{.R}}          Show this help page
+       {{.B}}-v, --version{{.R}}       Print version and exit
+       {{.B}}-i, --interactive{{.R}}   Configure via prompts (saved as defaults)
+       {{.B}}-n, --dry-run{{.R}}       Preview configuration without writing files
+       {{.B}}--env-file{{.R}} <path>   Load environment variables from file
 
-	{{.B}}-v, --version{{.R}}
-		Print version information and exit.
+{{.B}}CAPABILITY FLAGS{{.R}}
+       All flags support {{.B}}--flag{{.R}} (enable) and {{.B}}--no-flag{{.R}} (disable).
+       These override saved configuration and interactive choices.
 
-	{{.B}}-i, --interactive{{.R}}
-		Configure service capabilities manually via prompts.
+       {{.B}}--network{{.R}}             Network access                   (default: on)
+       {{.B}}--listening{{.R}}           Server mode / port binding       (default: on)
+       {{.B}}--privileged-ports{{.R}}    Bind to ports < 1024             (default: off)
+       {{.B}}--exec-memory{{.R}}         JIT / executable memory          (default: off)
+       {{.B}}--writable{{.R}}            Writable working directory       (default: off)
+       {{.B}}--runtime-dir{{.R}}         Create /run/<name>               (default: off)
+       {{.B}}--devices{{.R}}             Hardware device access           (default: off)
+       {{.B}}--full-devices{{.R}}        Unrestricted device access       (default: off)
+       {{.B}}--subprocess{{.R}}          Shell / subprocess execution     (default: off)
+       {{.B}}--log-dir{{.R}}             Separate logs subdirectory       (default: on)
 
-{{.B}}{{.U}}CONFIGURATION{{.R}}
+{{.B}}CONFIGURATION REFERENCE{{.R}}
+   {{.B}}Network Access{{.R}} (--network)
+       Controls IPv4/IPv6 networking. When disabled, creates a private network
+       namespace with only loopback, blocking all external communication.
 
-	{{.B}}Network Access{{.R}} (Default: {{.B}}enabled{{.R}})
-		Controls AF_INET/AF_INET6 address families and creates a private
-		loopback-only namespace when disabled. Disabling this effectively
-		"airgaps" the service, preventing all external communication.
-		Disable for local processing tools, offline bots or crons.
+       {{.U}}Enable:{{.R}}  Web servers, APIs, database clients, anything using TCP/UDP.
+       {{.U}}Disable:{{.R}} File processors, offline cron jobs, local-only tools.
 
-	{{.B}}Server Mode / Listening{{.R}} (Default: {{.B}}enabled{{.R}})
-		Controls port binding and startup ordering. When enabled, it allows
-		the service to bind to TCP/UDP ports (disables 'SocketBindDeny')
-		and ensures 'network-online.target' is reached before starting.
-		Required for web servers, databases and APIs.
+   {{.B}}Server Mode{{.R}} (--listening)
+       Allows binding to network ports. When disabled, blocks bind() syscalls
+       via SocketBindDeny=any. Changes startup dependency to network-online.tar-
+       get ensuring the network is fully configured before starting.
 
-	{{.B}}Privileged Ports (<1024){{.R}} (Default: {{.B}}disabled{{.R}})
-		Allows binding to ports below 1024 (e.g., 80/443) by granting the
-		CAP_NET_BIND_SERVICE capability to the service. Keep disabled if
-		you can bind to high ports (>=1024) and use a reverse proxy
-		(nginx) or port forwarding.
+       {{.U}}Enable:{{.R}}  HTTP servers, gRPC services, anything accepting connections.
+       {{.U}}Disable:{{.R}} Outbound-only clients (scrapers, bots, webhook senders).
 
-	{{.B}}JIT/Executable Memory{{.R}} (Default: {{.B}}disabled{{.R}})
-		Controls 'MemoryDenyWriteExecute'. Standard Go binaries do not need
-		this. Enable only for:
-		 - Runtimes with JIT (Java, Node.js, PHP)
-		 - Go libraries using WASM (e.g., wazero)
-		 - Applications using Go plugins (.so) or C-FFI
+   {{.B}}Privileged Ports{{.R}} (--privileged-ports)
+       Allows binding to ports below 1024 (80, 443) by granting the capability
+       CAP_NET_BIND_SERVICE to the process.
 
-	{{.B}}Writable Working Directory{{.R}} (Default: {{.B}}disabled{{.R}})
-		If disabled, the service root is mounted read-only via 'ReadOnlyPaths'.
-		This prevents compromised services from modifying their own binaries
-		or configs. Enable only if the app persists local data (e.g., SQLite).
-		{{.B}}Note:{{.R}} Logs usually do not require this (see below).
+       {{.U}}Enable:{{.R}}  Direct exposure without reverse proxy (rare).
+       {{.U}}Disable:{{.R}} Almost always. Use nginx as reverse proxy or high ports.
 
-	{{.B}}Runtime Directory / IPC{{.R}} (Default: {{.B}}disabled{{.R}})
-		Creates /run/<name> (tmpfs) owned by the service. Use this for
-		Unix domain sockets (.sock) or PID files to avoid polluting global
-		directories. Cleaned up automatically on stop.
+   {{.B}}Executable Memory{{.R}} (--exec-memory)
+       Allows memory pages that are both writable and executable. Required for
+       JIT compilation. Disables MemoryDenyWriteExecute when enabled.
 
-	{{.B}}Hardware Devices{{.R}} (Default: {{.B}}disabled{{.R}})
-		Grants access to hardware (USB, serial, GPU) and adds the user to
-		'dialout/plugdev'. Enable only if the service directly interacts
-		with physical hardware attached to the host.
+       {{.U}}Enable:{{.R}}  Node.js, Java, PHP, Python w/ native extensions, wazero/WASM.
+       {{.U}}Disable:{{.R}} Pure Go binaries, Rust, C/C++ without JIT.
 
-	{{.B}}Subprocesses{{.R}} (Default: {{.B}}disabled{{.R}})
-		Restricts the filesystem view by masking /bin, /usr/bin, etc.
-		This significantly reduces attack surface. Enable only if your
-		app shells out to external commands (e.g., ffmpeg, git).
+   {{.B}}Writable Directory{{.R}} (--writable)
+       Allows writing to the working directory. Switches from ReadOnlyPaths to
+       ReadWritePaths. Logs are handled separately (always writable).
 
-	{{.B}}Separate Logs Directory{{.R}} (Default: {{.B}}enabled{{.R}})
-		Organizes logs into <path>/logs/ instead of the root. This keeps
-		the working directory clean. Systemd handles the writes, so this
-		works even if 'Writable Working Directory' is disabled.
+       {{.U}}Enable:{{.R}}  SQLite databases, local caches, uploaded file storage.
+       {{.U}}Disable:{{.R}} Stateless services, external databases. Prevents binary mod.
 
-{{.B}}{{.U}}AUTHOR{{.R}}
-	Laura <github.com/coalaura>
+   {{.B}}Runtime Directory{{.R}} (--runtime-dir)
+       Creates /run/<name>/ owned by the service user. Uses tmpfs, auto-cleaned
+       on service stop.
+
+       {{.U}}Enable:{{.R}}  Unix socket servers, PID files, ephemeral runtime state.
+       {{.U}}Disable:{{.R}} Services binding to TCP ports without socket files.
+
+   {{.B}}Hardware Devices{{.R}} (--devices)
+       Grants access to /dev (USB, serial, GPU). Disables PrivateDevices, adds
+       AF_NETLINK for udev, adds user to dialout/plugdev groups.
+
+       {{.U}}Enable:{{.R}}  IoT controllers, serial communication, GPU compute (CUDA).
+       {{.U}}Disable:{{.R}} Web services, anything not directly talking to hardware.
+
+   {{.B}}Full Device Access{{.R}} (--full-devices)
+       Removes device sandboxing entirely. Sets DevicePolicy=none, removes
+       DeviceAllow restrictions. Falls back to standard Unix permissions.
+
+       {{.U}}Enable:{{.R}}  libusb applications, raw HID, when standard rules fail.
+       {{.U}}Disable:{{.R}} If --devices alone works. Always try restricted mode first.
+
+   {{.B}}Subprocesses{{.R}} (--subprocess)
+       Allows executing external binaries. When disabled, masks /bin, /usr/bin,
+       /sbin, /usr/sbin, /usr/local/bin via InaccessiblePaths.
+
+       {{.U}}Enable:{{.R}}  Apps shelling out to ffmpeg, git, imagemagick.
+       {{.U}}Disable:{{.R}} Self-contained binaries. Reduces attack surface drastically.
+
+   {{.B}}Separate Logs Directory{{.R}} (--log-dir)
+       Places logs in <path>/logs/ instead of <path>/. Setup script creates the
+       directory with correct ownership.
+
+       {{.U}}Enable:{{.R}}  Cleaner project root, easier to .gitignore.
+       {{.U}}Disable:{{.R}} Single-file deployments, legacy apps expecting logs in root.
+
+{{.B}}ENVIRONMENT FILE{{.R}}
+       The --env-file option sets EnvironmentFile= in the unit. The file should
+       contain KEY=VALUE pairs, one per line. Loaded by systemd before exec.
+
+       Example:  mksvc myapp /opt/myapp --env-file=/opt/myapp/.env
+
+       The env file is {{.U}}not{{.R}} managed by mksvc. Create it manually with proper
+       permissions (chmod 600, owned by service user).
+
+{{.B}}PERSISTENCE{{.R}}
+       Configuration is saved to conf/svc.yml. On subsequent runs:
+         - Without -i: Uses saved options directly
+         - With -i: Saved options become defaults (press Enter to keep)
+         - CLI flags always override saved options
+
+       Custom additions to the .service file (Environment, TimeoutStartSec) are
+       preserved across regeneration. Only mksvc-managed keys are reset.
+
+{{.B}}EXAMPLES{{.R}}
+       mksvc myapp /opt/myapp -i           # First-time setup with prompts
+       mksvc                               # Regenerate with saved config
+       mksvc myapp /opt/myapp --dry-run    # Preview without writing
+       mksvc --writable                    # Override single option
+       mksvc myapp /opt/myapp --no-listening --no-subprocess  # Scripted
+
+{{.B}}FILES{{.R}}
+       conf/svc.yml              Saved configuration
+       conf/<name>.service       Systemd unit file
+       conf/<name>.conf          Sysusers config (creates user/group)
+       conf/<name>_logs.conf     Logrotate configuration
+       conf/setup.sh             Installation script
+       conf/uninstall.sh         Uninstallation script
+
+{{.B}}AUTHOR{{.R}}
+       Laura <github.com/coalaura>
