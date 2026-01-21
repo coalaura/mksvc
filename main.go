@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/alecthomas/kong"
 	"github.com/coalaura/plain"
@@ -19,6 +20,7 @@ type CLI struct {
 	Interactive bool `short:"i" help:"Enable interactive configuration mode."`
 	DryRun      bool `short:"n" name:"dry-run" help:"Preview generated files without writing."`
 
+	// Core options
 	Network         *bool `name:"network" negatable:"" help:"Network access."`
 	Listening       *bool `name:"listening" negatable:"" help:"Server mode (port binding)."`
 	PrivilegedPorts *bool `name:"privileged-ports" negatable:"" help:"Ports below 1024."`
@@ -30,6 +32,15 @@ type CLI struct {
 	Subprocess      *bool `name:"subprocess" negatable:"" help:"Shell/subprocess execution."`
 	SeparateLogDir  *bool `name:"log-dir" negatable:"" help:"Separate logs subdirectory."`
 
+	// Advanced security
+	LocalhostOnly *bool `name:"localhost-only" negatable:"" help:"Restrict network to localhost."`
+	PrivateUsers  *bool `name:"private-users" negatable:"" help:"User namespace isolation."`
+
+	// Resource limits
+	CPUQuota  string `name:"cpu-quota" help:"CPU quota (e.g., 200%% for 2 cores)."`
+	MemoryMax string `name:"memory-max" help:"Memory limit (e.g., 2G, 512M)."`
+
+	// Environment
 	EnvFile string `name:"env-file" help:"Path to environment file."`
 
 	Help    bool `short:"h" help:"Show detailed help."`
@@ -125,6 +136,7 @@ func main() {
 }
 
 func applyOverrides(cfg *ServiceConfig, cli *CLI) {
+	// Core options
 	if cli.Network != nil {
 		cfg.Network = *cli.Network
 	}
@@ -165,6 +177,25 @@ func applyOverrides(cfg *ServiceConfig, cli *CLI) {
 		cfg.SeparateLogDir = *cli.SeparateLogDir
 	}
 
+	// Advanced security
+	if cli.LocalhostOnly != nil {
+		cfg.LocalhostOnly = *cli.LocalhostOnly
+	}
+
+	if cli.PrivateUsers != nil {
+		cfg.PrivateUsers = *cli.PrivateUsers
+	}
+
+	// Resource limits
+	if cli.CPUQuota != "" {
+		cfg.CPUQuota = cli.CPUQuota
+	}
+
+	if cli.MemoryMax != "" {
+		cfg.MemoryMax = cli.MemoryMax
+	}
+
+	// Environment
 	if cli.EnvFile != "" {
 		cfg.EnvFile = cli.EnvFile
 	}
@@ -174,6 +205,7 @@ func runInteractive(cfg *ServiceConfig) {
 	log.Println("Interactive Configuration")
 	log.Println("Press Enter to accept defaults.")
 
+	// Network section
 	cfg.Network = ask(
 		"Network Access",
 		"Required for internet/intranet. Disabling creates an airgapped namespace.",
@@ -196,11 +228,19 @@ func runInteractive(cfg *ServiceConfig) {
 		} else {
 			cfg.PrivilegedPorts = false
 		}
+
+		cfg.LocalhostOnly = ask(
+			"Localhost Only",
+			"Restrict network to 127.0.0.0/8 and ::1. For local database access.",
+			cfg.LocalhostOnly,
+		)
 	} else {
 		cfg.Listening = false
 		cfg.PrivilegedPorts = false
+		cfg.LocalhostOnly = false
 	}
 
+	// Filesystem section
 	cfg.ExecMemory = ask(
 		"Executable Memory",
 		"Required for JIT runtimes (Node, Java) or Go WASM (wazero).",
@@ -219,6 +259,7 @@ func runInteractive(cfg *ServiceConfig) {
 		cfg.RuntimeDir,
 	)
 
+	// Hardware section
 	cfg.Devices = ask(
 		"Hardware Devices",
 		"Access to /dev (USB, serial, GPU).",
@@ -235,23 +276,39 @@ func runInteractive(cfg *ServiceConfig) {
 		cfg.FullDevices = false
 	}
 
+	// Process section
 	cfg.Subprocess = ask(
 		"Subprocesses",
 		"Allow spawning shell commands or external binaries.",
 		cfg.Subprocess,
 	)
 
+	cfg.PrivateUsers = ask(
+		"Private Users",
+		"User namespace isolation. May break user lookups or capabilities.",
+		cfg.PrivateUsers,
+	)
+
+	// Output section
 	cfg.SeparateLogDir = ask(
 		"Separate Logs",
 		"Organize logs into a 'logs' subdirectory.",
 		cfg.SeparateLogDir,
 	)
 
+	// Resource limits
+	log.Println()
+	log.Println("Resource Limits (leave empty for no limit)")
+
+	cfg.CPUQuota = askString("  CPU Quota (e.g., 200%)", cfg.CPUQuota)
+	cfg.MemoryMax = askString("  Memory Max (e.g., 2G)", cfg.MemoryMax)
+
 	log.Println()
 }
 
 func ask(title, desc string, def bool) bool {
 	log.Println()
+
 	log.Println(title)
 	log.Printf("  %s\n", desc)
 
@@ -261,12 +318,35 @@ func ask(title, desc string, def bool) bool {
 	return val
 }
 
+func askString(prompt, def string) string {
+	display := def
+
+	if display == "" {
+		display = "none"
+	}
+
+	log.Printf("%s [%s]: ", prompt, display)
+
+	val, err := log.Read("", 12)
+	log.MustFail(err)
+
+	val = strings.TrimSpace(val)
+
+	if val == "" {
+		return def
+	}
+
+	return val
+}
+
 func dryRun(cfg *ServiceConfig, confDir string) {
 	log.Println("Dry run - no files written.")
 	log.Println()
-	log.Println("Configuration summary:")
+	log.Println("Configuration:")
 	log.Printf("  Name:             %s\n", cfg.Name)
 	log.Printf("  Path:             %s\n", cfg.Path)
+	log.Println()
+	log.Println("Core Options:")
 	log.Printf("  Network:          %v\n", cfg.Network)
 	log.Printf("  Listening:        %v\n", cfg.Listening)
 	log.Printf("  PrivilegedPorts:  %v\n", cfg.PrivilegedPorts)
@@ -277,6 +357,14 @@ func dryRun(cfg *ServiceConfig, confDir string) {
 	log.Printf("  FullDevices:      %v\n", cfg.FullDevices)
 	log.Printf("  Subprocess:       %v\n", cfg.Subprocess)
 	log.Printf("  SeparateLogDir:   %v\n", cfg.SeparateLogDir)
+	log.Println()
+	log.Println("Advanced Security:")
+	log.Printf("  LocalhostOnly:    %v\n", cfg.LocalhostOnly)
+	log.Printf("  PrivateUsers:     %v\n", cfg.PrivateUsers)
+	log.Println()
+	log.Println("Resource Limits:")
+	log.Printf("  CPUQuota:         %s\n", valueOr(cfg.CPUQuota, "none"))
+	log.Printf("  MemoryMax:        %s\n", valueOr(cfg.MemoryMax, "none"))
 
 	if cfg.EnvFile != "" {
 		log.Printf("  EnvFile:          %s\n", cfg.EnvFile)
@@ -290,6 +378,14 @@ func dryRun(cfg *ServiceConfig, confDir string) {
 	log.Printf("  %s/setup.sh\n", confDir)
 	log.Printf("  %s/uninstall.sh\n", confDir)
 	log.Printf("  %s/svc.yml\n", confDir)
+}
+
+func valueOr(val, fallback string) string {
+	if val == "" {
+		return fallback
+	}
+
+	return val
 }
 
 func writeConfigs(cfg *ServiceConfig, confDir, configPath, servicePath string) error {

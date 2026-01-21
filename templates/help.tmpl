@@ -21,8 +21,9 @@
        All flags support {{.B}}--flag{{.R}} (enable) and {{.B}}--no-flag{{.R}} (disable).
        These override saved configuration and interactive choices.
 
-       {{.B}}--network{{.R}}             Network access                   (default: on)
-       {{.B}}--listening{{.R}}           Server mode / port binding       (default: on)
+   {{.U}}Core Options{{.R}}
+       {{.B}}--network{{.R}}             Network access                    (default: on)
+       {{.B}}--listening{{.R}}           Server mode / port binding        (default: on)
        {{.B}}--privileged-ports{{.R}}    Bind to ports < 1024             (default: off)
        {{.B}}--exec-memory{{.R}}         JIT / executable memory          (default: off)
        {{.B}}--writable{{.R}}            Writable working directory       (default: off)
@@ -31,6 +32,14 @@
        {{.B}}--full-devices{{.R}}        Unrestricted device access       (default: off)
        {{.B}}--subprocess{{.R}}          Shell / subprocess execution     (default: off)
        {{.B}}--log-dir{{.R}}             Separate logs subdirectory       (default: on)
+
+   {{.U}}Advanced Security{{.R}}
+       {{.B}}--localhost-only{{.R}}      Restrict network to localhost    (default: off)
+       {{.B}}--private-users{{.R}}       User namespace isolation         (default: off)
+
+   {{.U}}Resource Limits{{.R}}
+       {{.B}}--cpu-quota{{.R}} <val>     CPU quota (e.g., 200% for 2 cores)
+       {{.B}}--memory-max{{.R}} <val>    Memory limit (e.g., 2G, 512M)
 
 {{.B}}CONFIGURATION REFERENCE{{.R}}
    {{.B}}Network Access{{.R}} (--network)
@@ -104,6 +113,43 @@
        {{.U}}Enable:{{.R}}  Cleaner project root, easier to .gitignore.
        {{.U}}Disable:{{.R}} Single-file deployments, legacy apps expecting logs in root.
 
+   {{.B}}Localhost Only{{.R}} (--localhost-only)
+       Restricts network to 127.0.0.0/8 and ::1 using IPAddressAllow/Deny. The
+       service can only communicate with localhost (databases, redis, etc).
+
+       {{.U}}Enable:{{.R}}  Services talking only to local databases or caches.
+       {{.U}}Disable:{{.R}} Anything needing external network access.
+
+   {{.B}}Private Users{{.R}} (--private-users)
+       Enables user namespace isolation. The service runs in a separate user
+       namespace where it appears to be root but has no real privileges.
+
+       {{.U}}Enable:{{.R}}  Maximum isolation for untrusted workloads.
+       {{.U}}Disable:{{.R}} If service needs real user lookups or certain capabilities.
+       {{.U}}Warning:{{.R}} May break NSS lookups, supplementary groups, or capabilities.
+
+   {{.B}}CPU Quota{{.R}} (--cpu-quota)
+       Limits CPU time as percentage. 100% = 1 core, 200% = 2 cores. Prevents
+       runaway processes from starving other services.
+
+       {{.U}}Example:{{.R}} --cpu-quota=150%  (1.5 cores max)
+
+   {{.B}}Memory Max{{.R}} (--memory-max)
+       Hard memory limit. Process is killed (OOM) if exceeded. Supports K, M, G
+       suffixes.
+
+       {{.U}}Example:{{.R}} --memory-max=2G  (2 gigabytes max)
+
+{{.B}}ALWAYS-ON HARDENING{{.R}}
+       These settings are always enabled with no option to disable:
+
+       {{.B}}CoredumpFilter=0{{.R}}      Disables core dumps (prevents credential leaks)
+       {{.B}}NoNewPrivileges=yes{{.R}}   Prevents privilege escalation via setuid
+       {{.B}}ProtectSystem=strict{{.R}}  Root filesystem is read-only
+       {{.B}}ProtectHome=yes{{.R}}       /home, /root, /run/user are inaccessible
+       {{.B}}PrivateTmp=yes{{.R}}        Isolated /tmp and /var/tmp
+       {{.B}}ProtectKernel*=yes{{.R}}    Kernel tunables, modules, logs protected
+
 {{.B}}ENVIRONMENT FILE{{.R}}
        The --env-file option sets EnvironmentFile= in the unit. The file should
        contain KEY=VALUE pairs, one per line. Loaded by systemd before exec.
@@ -128,6 +174,7 @@
        mksvc myapp /opt/myapp --dry-run    # Preview without writing
        mksvc --writable                    # Override single option
        mksvc myapp /opt/myapp --no-listening --no-subprocess  # Scripted
+       mksvc myapp /opt/myapp --memory-max=2G --cpu-quota=100%
 
 {{.B}}FILES{{.R}}
        conf/svc.yml              Saved configuration

@@ -45,6 +45,7 @@ type ServiceConfig struct {
 	Path  string `yaml:"path"`
 	Label string `yaml:"-"`
 
+	// Core options
 	Network         bool `yaml:"network"`
 	Listening       bool `yaml:"listening"`
 	PrivilegedPorts bool `yaml:"privileged_ports"`
@@ -56,8 +57,18 @@ type ServiceConfig struct {
 	Subprocess      bool `yaml:"subprocess"`
 	SeparateLogDir  bool `yaml:"separate_log_dir"`
 
+	// Advanced security
+	LocalhostOnly bool `yaml:"localhost_only"`
+	PrivateUsers  bool `yaml:"private_users"`
+
+	// Resource limits (empty = no limit)
+	CPUQuota  string `yaml:"cpu_quota,omitempty"`
+	MemoryMax string `yaml:"memory_max,omitempty"`
+
+	// Environment
 	EnvFile string `yaml:"env_file,omitempty"`
 
+	// Internal (not persisted)
 	After    string              `yaml:"-"`
 	Requires string              `yaml:"-"`
 	Defaults map[string]string   `yaml:"-"`
@@ -105,6 +116,12 @@ func NewServiceConfig(name, path string) *ServiceConfig {
 		FullDevices:     false,
 		Subprocess:      false,
 		SeparateLogDir:  true,
+
+		LocalhostOnly: false,
+		PrivateUsers:  false,
+
+		CPUQuota:  "",
+		MemoryMax: "",
 
 		Defaults: defaultLimits(),
 		Custom:   make(map[string][]string),

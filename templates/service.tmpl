@@ -49,11 +49,13 @@ ProtectHostname=yes
 UtmpMode=no
 NoNewPrivileges=yes
 PrivateIPC=yes
+PrivateUsers={{ if .PrivateUsers }}yes{{ else }}no{{ end }}
 RestrictNamespaces=yes
 RemoveIPC=yes
 RestrictRealtime=yes
 RestrictSUIDSGID=true
 KeyringMode=private
+CoredumpFilter=0
 
 # Memory Protection
 MemoryDenyWriteExecute={{ if .ExecMemory }}no{{ else }}yes{{ end }}
@@ -63,6 +65,9 @@ RestrictAddressFamilies=AF_UNIX{{ if .Network }} AF_INET AF_INET6{{ end }}{{ if 
 PrivateNetwork={{ if .Network }}no{{ else }}yes{{ end }}
 {{- if and .Network (not .Listening) }}
 SocketBindDeny=any{{ end }}
+{{- if and .Network .LocalhostOnly }}
+IPAddressAllow=localhost
+IPAddressDeny=any{{ end }}
 
 # Syscall Filtering
 {{- if .PrivilegedPorts }}
@@ -75,7 +80,16 @@ SystemCallErrorNumber=EPERM
 SystemCallFilter=~@clock @cpu-emulation @debug @module @mount @obsolete @reboot @swap @resources{{ if not .Devices }} @raw-io{{ end }} @privileged @keyring @pkey @memlock
 {{- if not .Subprocess }}
 InaccessiblePaths=-/bin -/usr/bin -/sbin -/usr/sbin -/usr/local/bin{{ end }}
+{{- if or .CPUQuota .MemoryMax }}
 
+# Resource Limits
+{{- if .CPUQuota }}
+CPUQuota={{ .CPUQuota }}{{ end }}
+{{- if .MemoryMax }}
+MemoryMax={{ .MemoryMax }}{{ end }}
+{{- end }}
+
+# Restart & Runtime
 Restart=always
 RestartSec=3
 RuntimeMaxSec=5d
