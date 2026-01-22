@@ -108,6 +108,14 @@ func main() {
 
 	applyOverrides(cfg, &cli)
 
+	if cfg.PrivateUsers {
+		allowed, _ := cfg.CanHavePrivateUsers()
+
+		if !allowed {
+			cfg.PrivateUsers = false
+		}
+	}
+
 	if cli.Interactive {
 		runInteractive(cfg)
 	}
@@ -283,11 +291,21 @@ func runInteractive(cfg *ServiceConfig) {
 		cfg.Subprocess,
 	)
 
-	cfg.PrivateUsers = ask(
-		"Private Users",
-		"User namespace isolation. May break user lookups or capabilities.",
-		cfg.PrivateUsers,
-	)
+	allowed, reason := cfg.CanHavePrivateUsers()
+
+	if !allowed {
+		cfg.PrivateUsers = false
+
+		log.Println()
+		log.Println("Private Users")
+		log.Printf("  Forced off: %s\n", reason)
+	} else {
+		cfg.PrivateUsers = ask(
+			"Private Users",
+			"User namespace isolation. May break user lookups or capabilities.",
+			cfg.PrivateUsers,
+		)
+	}
 
 	// Output section
 	cfg.SeparateLogDir = ask(

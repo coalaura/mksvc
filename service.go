@@ -315,6 +315,22 @@ func (cfg *ServiceConfig) FormatCustom() string {
 	return strings.Join(lines, "\n")
 }
 
+func (cfg *ServiceConfig) CanHavePrivateUsers() (bool, string) {
+	if cfg.PrivilegedPorts {
+		return false, "disabled because privileged ports require CAP_NET_BIND_SERVICE"
+	}
+
+	if cfg.Devices {
+		return false, "disabled because device access + supplementary groups are enabled"
+	}
+
+	if _, ok := cfg.Custom["SupplementaryGroups"]; ok {
+		return false, "disabled because SupplementaryGroups is set"
+	}
+
+	return true, ""
+}
+
 func (cfg *ServiceConfig) WriteTemplate(path string, tmpl *template.Template) error {
 	path = strings.Replace(path, "{name}", cfg.Name, 1)
 

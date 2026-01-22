@@ -123,6 +123,7 @@
    {{.B}}Private Users{{.R}} (--private-users)
        Enables user namespace isolation. The service runs in a separate user
        namespace where it appears to be root but has no real privileges.
+       Automatically disabled when --privileged-ports or --devices is enabled.
 
        {{.U}}Enable:{{.R}}  Maximum isolation for untrusted workloads.
        {{.U}}Disable:{{.R}} If service needs real user lookups or certain capabilities.
