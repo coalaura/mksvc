@@ -9,7 +9,7 @@ A hardened, opinionated Systemd service generator for modern Linux deployments.
 Download the latest binary from the [Releases Page](https://github.com/coalaura/mksvc/releases) or install a prebuilt binary with one command:
 
 ```bash
-curl -sL https://src.w2k.sh/mksvc/install.sh | sh
+curl -sL https://src.ws2.sh/mksvc/install.sh | sh
 ```
 
 ## Usage
