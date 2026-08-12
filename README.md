@@ -6,7 +6,7 @@ A hardened, opinionated Systemd service generator for modern Linux deployments.
 
 ## Installation
 
-Download the latest binary from the [Releases Page](https://github.com/coalaura/mksvc/releases) or install a prebuilt binary with one command:
+Download the latest binary and `checksums.txt` from the [Releases Page](https://github.com/coalaura/mksvc/releases), or install a verified prebuilt binary with one command:
 
 ```bash
 curl -sL https://src.ws2.sh/mksvc/install.sh | sh
@@ -14,7 +14,7 @@ curl -sL https://src.ws2.sh/mksvc/install.sh | sh
 
 ## Usage
 
-Run `mksvc` in the root of your project directory.
+Run `mksvc` in the deployed service root. The path must be below `/opt`, `/srv`, `/var/lib` or `/usr/local/lib`, and the executable must have the same name as the service.
 
 ```bash
 # Generate configs interactively
@@ -24,6 +24,8 @@ mksvc my-app /opt/my-app -i
 sudo bash conf/setup.sh
 ```
 
+Setup makes the deployed executable and generated configuration root-owned. Run future regeneration as root from the same service directory, then rerun `conf/setup.sh`.
+
 ### Generated Artifacts
 
 The tool creates a `conf/` directory containing:
@@ -31,14 +33,16 @@ The tool creates a `conf/` directory containing:
 1. **`my-app.service`**: The Systemd unit file (Hardened).
 2. **`my-app.conf`**: Sysusers configuration to create the `my-app` user/group.
 3. **`my-app_logs.conf`**: Logrotate configuration for efficient log management.
-4. **`setup.sh`**: An idempotent script to link units, create users, configure log rotation and fix file permissions.
+4. **`setup.sh`**: An idempotent script to install root-owned units, create users and configure log rotation.
+5. **`uninstall.sh`**: Removes installed configuration and identities created by mksvc.
+6. **`svc.yml`**: Saved configuration for subsequent runs.
 
 ## Customization & Persistence
 
 `mksvc` is designed to run repeatedly without destroying your work.
 
 1. **Managed Keys**: Security attributes (e.g., `ProtectSystem`, `SystemCallFilter`) are owned by the tool. They are reset based on your interactive choices.
-2. **Custom Keys**: Any key **not** managed by the tool is preserved. You can manually edit `conf/my-app.service` to add environment variables or dependencies and `mksvc` will respect them on the next run.
+2. **Custom Keys**: `Environment` values, managed timeout overrides, and custom `After` and `Requires` targets are preserved. Other unmanaged directives are rejected because they are unsafe to import automatically.
 
 ### Example
 If you manually add this to `conf/my-app.service`:
@@ -49,7 +53,7 @@ Environment=API_KEY=12345
 TimeoutStartSec=600
 ```
 
-Running `mksvc` again will update the security sandbox settings but **keep** your `Environment` and `TimeoutStartSec` lines exactly as they are.
+Running `mksvc` again will update the security sandbox settings but keep your `Environment` value and `TimeoutStartSec` override.
 
 ## Security Features
 
@@ -58,3 +62,4 @@ Running `mksvc` again will update the security sandbox settings but **keep** you
 * **Network**: Offline/Airgapped by default (`PrivateNetwork=yes`). Optional "Server Mode" for binding ports.
 * **Kernel**: Logs, modules and tunables are protected. `/dev` is private.
 * **Memory**: `MemoryDenyWriteExecute` enabled by default (WASM/JIT can opt-in).
+* **Ownership**: Application code and installed policy remain root-owned. Only logs, the optional `data` directory, and an explicitly enabled application config file are service-writable.

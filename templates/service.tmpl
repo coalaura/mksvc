@@ -25,11 +25,12 @@ StandardInput=null
 
 # Filesystem Sandboxing
 ProtectSystem=strict
-{{ if .WritableFiles }}ReadWritePaths={{ else }}ReadOnlyPaths={{ end }}{{ .Path }}
+ReadOnlyPaths={{ .Path }}
+ReadWritePaths={{ .Path }}/{{ if .SeparateLogDir }}logs{{ else }}{{ .Name }}.log{{ end }}{{ if .WritableFiles }} {{ .Path }}/data{{ end }}{{ if .WritableConfig }} {{ .Path }}/{{ .ConfigFile }}{{ end }}
 ProtectHome=yes
 PrivateTmp=yes
 PrivateMounts=yes
-UMask={{ if .WritableFiles }}0022{{ else }}0077{{ end }}
+UMask=0077
 
 # Kernel & Hardware Protection
 PrivateDevices={{ if .Devices }}no{{ else }}yes{{ end }}
@@ -90,9 +91,8 @@ MemoryMax={{ .MemoryMax }}{{ end }}
 {{- end }}
 
 # Restart & Runtime
-Restart=always
+Restart=on-failure
 RestartSec=3
-RuntimeMaxSec=5d
 {{- if .Defaults }}
 
 # Defaults

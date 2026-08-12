@@ -4,9 +4,12 @@ import (
 	"bufio"
 	"bytes"
 	_ "embed"
+	"fmt"
 	"iter"
 	"os"
+	pathpkg "path"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"text/template"
@@ -38,6 +41,17 @@ var (
 	LogrotateTmpl = template.Must(template.New("logrotate").Parse(logrotateStr))
 
 	managedKeys = initManagedKeys()
+
+	serviceNameRgx = regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,30}$`)
+	safePathRgx    = regexp.MustCompile(`^/[A-Za-z0-9._/-]+$`)
+	cpuQuotaRgx    = regexp.MustCompile(`^[1-9][0-9]*(?:\.[0-9]+)?%$`)
+	memoryMaxRgx   = regexp.MustCompile(`^[1-9][0-9]*(?:\.[0-9]+)?[KMGTPE]?$`)
+	directiveRgx   = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9]*$`)
+	configFileRgx  = regexp.MustCompile(`^[A-Za-z0-9._-]{1,128}$`)
+
+	preservedCustomKeys = map[string]bool{
+		"Environment": true,
+	}
 )
 
 type ServiceConfig struct {
@@ -46,16 +60,18 @@ type ServiceConfig struct {
 	Label string `yaml:"-"`
 
 	// Core options
-	Network         bool `yaml:"network"`
-	Listening       bool `yaml:"listening"`
-	PrivilegedPorts bool `yaml:"privileged_ports"`
-	ExecMemory      bool `yaml:"exec_memory"`
-	WritableFiles   bool `yaml:"writable_files"`
-	RuntimeDir      bool `yaml:"runtime_dir"`
-	Devices         bool `yaml:"devices"`
-	FullDevices     bool `yaml:"full_devices"`
-	Subprocess      bool `yaml:"subprocess"`
-	SeparateLogDir  bool `yaml:"separate_log_dir"`
+	Network         bool   `yaml:"network"`
+	Listening       bool   `yaml:"listening"`
+	PrivilegedPorts bool   `yaml:"privileged_ports"`
+	ExecMemory      bool   `yaml:"exec_memory"`
+	WritableFiles   bool   `yaml:"writable_files"`
+	WritableConfig  bool   `yaml:"writable_config"`
+	ConfigFile      string `yaml:"config_file,omitempty"`
+	RuntimeDir      bool   `yaml:"runtime_dir"`
+	Devices         bool   `yaml:"devices"`
+	FullDevices     bool   `yaml:"full_devices"`
+	Subprocess      bool   `yaml:"subprocess"`
+	SeparateLogDir  bool   `yaml:"separate_log_dir"`
 
 	// Advanced security
 	LocalhostOnly bool `yaml:"localhost_only"`
@@ -106,11 +122,12 @@ func NewServiceConfig(name, path string) *ServiceConfig {
 		Name: cleanName,
 		Path: path,
 
-		Network:         true,
-		Listening:       true,
+		Network:         false,
+		Listening:       false,
 		PrivilegedPorts: false,
 		ExecMemory:      false,
 		WritableFiles:   false,
+		WritableConfig:  false,
 		RuntimeDir:      false,
 		Devices:         false,
 		FullDevices:     false,
@@ -140,7 +157,7 @@ func LoadConfig(path string) (*ServiceConfig, error) {
 
 	var cfg ServiceConfig
 
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
+	if err := yaml.UnmarshalWithOptions(data, &cfg, yaml.Strict()); err != nil {
 		return nil, err
 	}
 
@@ -151,13 +168,73 @@ func LoadConfig(path string) (*ServiceConfig, error) {
 	return &cfg, nil
 }
 
+func (cfg *ServiceConfig) Normalize() {
+	if !cfg.Network {
+		cfg.Listening = false
+		cfg.PrivilegedPorts = false
+		cfg.LocalhostOnly = false
+	}
+
+	if !cfg.Listening {
+		cfg.PrivilegedPorts = false
+	}
+
+	if !cfg.Devices {
+		cfg.FullDevices = false
+	}
+}
+
+func (cfg *ServiceConfig) Validate() error {
+	if !serviceNameRgx.MatchString(cfg.Name) || cfg.Name == "root" || cfg.Name == "nobody" {
+		return fmt.Errorf("invalid service name %q", cfg.Name)
+	}
+
+	if !validServicePath(cfg.Path) {
+		return fmt.Errorf("service path must be a clean absolute path below /opt, /srv, /var/lib, or /usr/local/lib")
+	}
+
+	if cfg.EnvFile != "" && !validAbsolutePath(cfg.EnvFile) {
+		return fmt.Errorf("invalid environment file path %q", cfg.EnvFile)
+	}
+
+	if cfg.CPUQuota != "" && !cpuQuotaRgx.MatchString(cfg.CPUQuota) {
+		return fmt.Errorf("invalid CPU quota %q", cfg.CPUQuota)
+	}
+
+	if cfg.MemoryMax != "" && !memoryMaxRgx.MatchString(cfg.MemoryMax) {
+		return fmt.Errorf("invalid memory limit %q", cfg.MemoryMax)
+	}
+
+	if cfg.WritableConfig {
+		if !configFileRgx.MatchString(cfg.ConfigFile) || cfg.ConfigFile == "." || cfg.ConfigFile == ".." {
+			return fmt.Errorf("invalid writable config filename %q", cfg.ConfigFile)
+		}
+
+		reserved := map[string]bool{
+			cfg.Name:          true,
+			cfg.Name + ".log": true,
+			"conf":            true,
+			"data":            true,
+			"logs":            true,
+		}
+
+		if reserved[cfg.ConfigFile] {
+			return fmt.Errorf("writable config filename %q conflicts with a managed path", cfg.ConfigFile)
+		}
+	} else if cfg.ConfigFile != "" {
+		return fmt.Errorf("config_file requires writable_config")
+	}
+
+	return nil
+}
+
 func (cfg *ServiceConfig) SaveConfig(path string) error {
 	data, err := yaml.Marshal(cfg)
 	if err != nil {
 		return err
 	}
 
-	return os.WriteFile(path, data, 0644)
+	return writeFileAtomic(path, data, 0600)
 }
 
 func (cfg *ServiceConfig) UpdateLabel() {
@@ -218,10 +295,18 @@ func (cfg *ServiceConfig) PreserveCustom(path string) error {
 
 		key := strings.TrimSpace(parts[0])
 		value := strings.TrimSpace(parts[1])
+		if !directiveRgx.MatchString(key) || strings.ContainsAny(value, "\r\n") {
+			return fmt.Errorf("invalid directive in %s", path)
+		}
 
 		if inUnit {
 			switch key {
 			case "After":
+				value = removeManagedTargets(value)
+				if value == "" {
+					continue
+				}
+
 				if seenAfter {
 					cfg.After += " " + value
 				} else {
@@ -230,6 +315,11 @@ func (cfg *ServiceConfig) PreserveCustom(path string) error {
 					seenAfter = true
 				}
 			case "Requires":
+				value = removeManagedTargets(value)
+				if value == "" {
+					continue
+				}
+
 				if seenRequires {
 					cfg.Requires += " " + value
 				} else {
@@ -240,6 +330,10 @@ func (cfg *ServiceConfig) PreserveCustom(path string) error {
 			}
 		} else if inService {
 			if !managedKeys[key] && cfg.Defaults[key] != value {
+				if !preservedCustomKeys[key] {
+					return fmt.Errorf("refusing to preserve unsupported directive %s", key)
+				}
+
 				cfg.Custom[key] = append(cfg.Custom[key], value)
 
 				delete(cfg.Defaults, key)
@@ -273,10 +367,6 @@ func (cfg *ServiceConfig) ApplyDefaultAfter() {
 func (cfg *ServiceConfig) ApplyDeviceDefaults() {
 	if !cfg.Devices {
 		return
-	}
-
-	if _, exists := cfg.Custom["SupplementaryGroups"]; !exists {
-		cfg.Custom["SupplementaryGroups"] = []string{"dialout", "plugdev"}
 	}
 
 	if cfg.FullDevices {
@@ -334,14 +424,109 @@ func (cfg *ServiceConfig) CanHavePrivateUsers() (bool, string) {
 func (cfg *ServiceConfig) WriteTemplate(path string, tmpl *template.Template) error {
 	path = strings.Replace(path, "{name}", cfg.Name, 1)
 
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0644)
+	var data bytes.Buffer
+
+	if err := tmpl.Execute(&data, cfg); err != nil {
+		return err
+	}
+
+	return writeFileAtomic(path, data.Bytes(), 0644)
+}
+
+func validServicePath(value string) bool {
+	if !validAbsolutePath(value) {
+		return false
+	}
+
+	for _, root := range []string{"/opt", "/srv", "/var/lib", "/usr/local/lib"} {
+		if strings.HasPrefix(value, root+"/") {
+			return true
+		}
+	}
+
+	return false
+}
+
+func validAbsolutePath(value string) bool {
+	return safePathRgx.MatchString(value) && pathpkg.IsAbs(value) && pathpkg.Clean(value) == value
+}
+
+func removeManagedTargets(value string) string {
+	managed := map[string]bool{
+		"local-fs.target":       true,
+		"network.target":        true,
+		"network-online.target": true,
+	}
+
+	values := strings.Fields(value)
+	kept := values[:0]
+
+	for _, item := range values {
+		if !managed[item] {
+			kept = append(kept, item)
+		}
+	}
+
+	return strings.Join(kept, " ")
+}
+
+func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
+	file, err := os.CreateTemp(pathpkg.Dir(path), ".mksvc-*")
 	if err != nil {
 		return err
 	}
 
-	defer file.Close()
+	tempPath := file.Name()
 
-	return tmpl.Execute(file, cfg)
+	defer os.Remove(tempPath)
+
+	err = file.Chmod(mode)
+	if err != nil {
+		file.Close()
+
+		return err
+	}
+
+	_, err = file.Write(data)
+	if err != nil {
+		file.Close()
+
+		return err
+	}
+
+	err = file.Sync()
+	if err != nil {
+		file.Close()
+
+		return err
+	}
+
+	err = file.Close()
+	if err != nil {
+		return err
+	}
+
+	err = os.Rename(tempPath, path)
+	if err == nil || runtime.GOOS != "windows" {
+		return err
+	}
+
+	info, statErr := os.Lstat(path)
+	if statErr != nil && !os.IsNotExist(statErr) {
+		return statErr
+	}
+
+	if statErr == nil {
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("refusing to replace non-regular file %s", path)
+		}
+
+		if err := os.Remove(path); err != nil {
+			return err
+		}
+	}
+
+	return os.Rename(tempPath, path)
 }
 
 func defaultLimits() map[string]string {

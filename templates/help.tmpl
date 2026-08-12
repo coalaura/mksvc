@@ -22,11 +22,13 @@
        These override saved configuration and interactive choices.
 
    {{.U}}Core Options{{.R}}
-       {{.B}}--network{{.R}}             Network access                   (default: on)
-       {{.B}}--listening{{.R}}           Server mode / port binding       (default: on)
+       {{.B}}--network{{.R}}             Network access                   (default: off)
+       {{.B}}--listening{{.R}}           Server mode / port binding       (default: off)
        {{.B}}--privileged-ports{{.R}}    Bind to ports < 1024             (default: off)
        {{.B}}--exec-memory{{.R}}         JIT / executable memory          (default: off)
-       {{.B}}--writable{{.R}}            Writable working directory       (default: off)
+       {{.B}}--writable{{.R}}            Writable data directory          (default: off)
+       {{.B}}--writable-config{{.R}}     Writable application config file (default: off)
+       {{.B}}--config-file=NAME{{.R}}    Config filename                  (default: config.yml)
        {{.B}}--runtime-dir{{.R}}         Create /run/<name>               (default: off)
        {{.B}}--devices{{.R}}             Hardware device access           (default: off)
        {{.B}}--full-devices{{.R}}        Unrestricted device access       (default: off)
@@ -71,12 +73,20 @@
        {{.U}}Enable:{{.R}}  Node.js, Java, PHP, Python w/ native extensions, wazero/WASM.
        {{.U}}Disable:{{.R}} Pure Go binaries, Rust, C/C++ without JIT.
 
-   {{.B}}Writable Directory{{.R}} (--writable)
-       Allows writing to the working directory. Switches from ReadOnlyPaths to
-       ReadWritePaths. Logs are handled separately (always writable).
+   {{.B}}Writable Data Directory{{.R}} (--writable)
+       Creates <path>/data owned by the service user and adds it to
+       ReadWritePaths. Application code and configuration remain read-only.
 
        {{.U}}Enable:{{.R}}  SQLite databases, local caches, uploaded file storage.
-       {{.U}}Disable:{{.R}} Stateless services, external databases. Prevents binary mod.
+       {{.U}}Disable:{{.R}} Stateless services, external databases.
+
+   {{.B}}Writable Config File{{.R}} (--writable-config, --config-file=NAME)
+       Creates or adopts one named file next to the executable, owned by the
+       service user with mode 0600. Existing contents are preserved by setup.
+       Generated files under conf/ remain root-owned and read-only.
+
+       {{.U}}Enable:{{.R}}  Services that generate tokens or persist config changes.
+       {{.U}}Disable:{{.R}} Services with immutable or externally managed configuration.
 
    {{.B}}Runtime Directory{{.R}} (--runtime-dir)
        Creates /run/<name>/ owned by the service user. Uses tmpfs, auto-cleaned
@@ -86,8 +96,9 @@
        {{.U}}Disable:{{.R}} Services binding to TCP ports without socket files.
 
    {{.B}}Hardware Devices{{.R}} (--devices)
-       Grants access to /dev (USB, serial, GPU). Disables PrivateDevices, adds
-       AF_NETLINK for udev, adds user to dialout/plugdev groups.
+       Grants access to selected device classes. Disables PrivateDevices and
+       adds AF_NETLINK for udev. Setup includes an example udev ownership rule;
+       some distributions instead require explicit dialout or plugdev membership.
 
        {{.U}}Enable:{{.R}}  IoT controllers, serial communication, GPU compute (CUDA).
        {{.U}}Disable:{{.R}} Web services, anything not directly talking to hardware.
@@ -158,13 +169,16 @@
        Example:  mksvc myapp /opt/myapp --env-file=/opt/myapp/.env
 
        The env file is {{.U}}not{{.R}} managed by mksvc. Create it manually with proper
-       permissions (chmod 600, owned by service user).
+       permissions (chmod 600, owned by root and readable by the service group).
 
 {{.B}}PERSISTENCE{{.R}}
        Configuration is saved to conf/svc.yml. On subsequent runs:
          - Without -i: Uses saved options directly
          - With -i: Saved options become defaults (press Enter to keep)
          - CLI flags always override saved options
+
+       After setup, deployed configuration is root-owned. Regenerate it as root
+       from the service directory before rerunning conf/setup.sh.
 
        Custom additions to the .service file (Environment, TimeoutStartSec) are
        preserved across regeneration. Only mksvc-managed keys are reset.

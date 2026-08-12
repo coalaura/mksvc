@@ -67,6 +67,10 @@ jobs:
         mkdir -p ./build
         find ./artifacts -type f -exec cp {} ./build/ \;
 
+    - name: Create checksums
+      working-directory: ./build
+      run: sha256sum mksvc_* > checksums.txt
+
     - name: Create GitHub release
       uses: softprops/action-gh-release@v2
       with:

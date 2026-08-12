@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +14,7 @@ var Version = "dev"
 
 var log = plain.New()
 
+// gost:preserve-layout
 type CLI struct {
 	Name string `arg:"" optional:"" help:"Name of the service and executable."`
 	Path string `arg:"" optional:"" help:"Path to the service root directory."`
@@ -21,16 +23,18 @@ type CLI struct {
 	DryRun      bool `short:"n" name:"dry-run" help:"Preview generated files without writing."`
 
 	// Core options
-	Network         *bool `name:"network" negatable:"" help:"Network access."`
-	Listening       *bool `name:"listening" negatable:"" help:"Server mode (port binding)."`
-	PrivilegedPorts *bool `name:"privileged-ports" negatable:"" help:"Ports below 1024."`
-	ExecMemory      *bool `name:"exec-memory" negatable:"" help:"JIT/executable memory."`
-	WritableFiles   *bool `name:"writable" negatable:"" help:"Writable working directory."`
-	RuntimeDir      *bool `name:"runtime-dir" negatable:"" help:"Runtime directory (/run)."`
-	Devices         *bool `name:"devices" negatable:"" help:"Hardware device access."`
-	FullDevices     *bool `name:"full-devices" negatable:"" help:"Unrestricted device access."`
-	Subprocess      *bool `name:"subprocess" negatable:"" help:"Shell/subprocess execution."`
-	SeparateLogDir  *bool `name:"log-dir" negatable:"" help:"Separate logs subdirectory."`
+	Network         *bool  `name:"network" negatable:"" help:"Network access."`
+	Listening       *bool  `name:"listening" negatable:"" help:"Server mode (port binding)."`
+	PrivilegedPorts *bool  `name:"privileged-ports" negatable:"" help:"Ports below 1024."`
+	ExecMemory      *bool  `name:"exec-memory" negatable:"" help:"JIT/executable memory."`
+	WritableFiles   *bool  `name:"writable" negatable:"" help:"Writable working directory."`
+	WritableConfig  *bool  `name:"writable-config" negatable:"" help:"Writable application config file."`
+	ConfigFile      string `name:"config-file" help:"Writable config filename (default: config.yml)."`
+	RuntimeDir      *bool  `name:"runtime-dir" negatable:"" help:"Runtime directory (/run)."`
+	Devices         *bool  `name:"devices" negatable:"" help:"Hardware device access."`
+	FullDevices     *bool  `name:"full-devices" negatable:"" help:"Unrestricted device access."`
+	Subprocess      *bool  `name:"subprocess" negatable:"" help:"Shell/subprocess execution."`
+	SeparateLogDir  *bool  `name:"log-dir" negatable:"" help:"Separate logs subdirectory."`
 
 	// Advanced security
 	LocalhostOnly *bool `name:"localhost-only" negatable:"" help:"Restrict network to localhost."`
@@ -75,7 +79,7 @@ func main() {
 
 	cfg, err := LoadConfig(configPath)
 	if err != nil && !os.IsNotExist(err) {
-		log.Printf("Warning: Could not load config: %v\n", err)
+		log.MustExit(fmt.Errorf("could not load config: %w", err))
 	}
 
 	if cfg != nil {
@@ -100,13 +104,19 @@ func main() {
 	if cfg == nil {
 		cfg = NewServiceConfig(cli.Name, cli.Path)
 	} else {
-		cfg.Name = cli.Name
+		cfg.Name = cleanServiceName(cli.Name)
 		cfg.Path = cli.Path
 
 		cfg.UpdateLabel()
 	}
 
+	if cli.Interactive {
+		runInteractive(cfg)
+	}
+
 	applyOverrides(cfg, &cli)
+
+	cfg.Normalize()
 
 	if cfg.PrivateUsers {
 		allowed, _ := cfg.CanHavePrivateUsers()
@@ -116,14 +126,15 @@ func main() {
 		}
 	}
 
-	if cli.Interactive {
-		runInteractive(cfg)
+	err = cfg.Validate()
+	if err != nil {
+		log.MustExit(err)
 	}
 
 	servicePath := filepath.Join(confDir, cfg.Name+".service")
 
 	if err := cfg.PreserveCustom(servicePath); err != nil {
-		log.Printf("Warning: Could not read existing service file: %v\n", err)
+		log.MustExit(fmt.Errorf("could not preserve existing service configuration: %w", err))
 	} else if len(cfg.Custom) > 0 {
 		log.Printf("Preserved %d custom configuration lines.\n", len(cfg.Custom))
 	}
@@ -163,6 +174,20 @@ func applyOverrides(cfg *ServiceConfig, cli *CLI) {
 
 	if cli.WritableFiles != nil {
 		cfg.WritableFiles = *cli.WritableFiles
+	}
+
+	if cli.WritableConfig != nil {
+		cfg.WritableConfig = *cli.WritableConfig
+		if !cfg.WritableConfig {
+			cfg.ConfigFile = ""
+		}
+	}
+
+	if cli.ConfigFile != "" {
+		cfg.ConfigFile = cli.ConfigFile
+		if cli.WritableConfig == nil {
+			cfg.WritableConfig = true
+		}
 	}
 
 	if cli.RuntimeDir != nil {
@@ -257,9 +282,25 @@ func runInteractive(cfg *ServiceConfig) {
 
 	cfg.WritableFiles = ask(
 		"Writable Directory",
-		"Allows service to modify files in its working directory.",
+		"Creates a writable data directory inside the service root.",
 		cfg.WritableFiles,
 	)
+
+	cfg.WritableConfig = ask(
+		"Writable Config File",
+		"Allows one application config file next to the executable to update itself.",
+		cfg.WritableConfig,
+	)
+
+	if cfg.WritableConfig {
+		if cfg.ConfigFile == "" {
+			cfg.ConfigFile = "config.yml"
+		}
+
+		cfg.ConfigFile = askString("  Config filename", cfg.ConfigFile)
+	} else {
+		cfg.ConfigFile = ""
+	}
 
 	cfg.RuntimeDir = ask(
 		"Runtime Directory",
@@ -370,6 +411,12 @@ func dryRun(cfg *ServiceConfig, confDir string) {
 	log.Printf("  PrivilegedPorts:  %v\n", cfg.PrivilegedPorts)
 	log.Printf("  ExecMemory:       %v\n", cfg.ExecMemory)
 	log.Printf("  WritableFiles:    %v\n", cfg.WritableFiles)
+	log.Printf("  WritableConfig:   %v\n", cfg.WritableConfig)
+
+	if cfg.WritableConfig {
+		log.Printf("  ConfigFile:       %s\n", cfg.ConfigFile)
+	}
+
 	log.Printf("  RuntimeDir:       %v\n", cfg.RuntimeDir)
 	log.Printf("  Devices:          %v\n", cfg.Devices)
 	log.Printf("  FullDevices:      %v\n", cfg.FullDevices)
@@ -409,14 +456,19 @@ func valueOr(val, fallback string) string {
 func writeConfigs(cfg *ServiceConfig, confDir, configPath, servicePath string) error {
 	log.Println("Writing configs...")
 
-	if _, err := os.Stat(confDir); os.IsNotExist(err) {
+	info, err := os.Lstat(confDir)
+	if os.IsNotExist(err) {
 		err = os.Mkdir(confDir, 0755)
 		if err != nil {
 			return err
 		}
+	} else if err != nil {
+		return err
+	} else if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("%s must be a real directory", confDir)
 	}
 
-	err := cfg.SaveConfig(configPath)
+	err = cfg.SaveConfig(configPath)
 	if err != nil {
 		return err
 	}
