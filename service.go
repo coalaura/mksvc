@@ -189,10 +189,6 @@ func (cfg *ServiceConfig) Validate() error {
 		return fmt.Errorf("invalid service name %q", cfg.Name)
 	}
 
-	if !validServicePath(cfg.Path) {
-		return fmt.Errorf("service path must be a clean absolute path below /opt, /srv, /var/lib, or /usr/local/lib")
-	}
-
 	if cfg.EnvFile != "" && !validAbsolutePath(cfg.EnvFile) {
 		return fmt.Errorf("invalid environment file path %q", cfg.EnvFile)
 	}
@@ -431,20 +427,6 @@ func (cfg *ServiceConfig) WriteTemplate(path string, tmpl *template.Template) er
 	}
 
 	return writeFileAtomic(path, data.Bytes(), 0644)
-}
-
-func validServicePath(value string) bool {
-	if !validAbsolutePath(value) {
-		return false
-	}
-
-	for _, root := range []string{"/opt", "/srv", "/var/lib", "/usr/local/lib"} {
-		if strings.HasPrefix(value, root+"/") {
-			return true
-		}
-	}
-
-	return false
 }
 
 func validAbsolutePath(value string) bool {
