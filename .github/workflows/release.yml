@@ -43,6 +43,9 @@ jobs:
         path: ${{ steps.build.outputs.path }}
         key: ${{ secrets.COALAURA_PFX }}
         passphrase: ${{ secrets.COALAURA_PFX_PASSWORD }}
+        chain: |
+          https://wiese2.org/pki/issuing.pem
+          https://wiese2.org/pki/root.pem
 
     - name: Upload artifact
       uses: actions/upload-artifact@v7
