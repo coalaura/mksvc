@@ -14,7 +14,7 @@ jobs:
 
     strategy:
       matrix:
-        goos:   [windows, linux]
+        goos:   [windows, linux, darwin]
         goarch: [amd64, arm64]
       fail-fast: false
 
@@ -22,33 +22,33 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v4
 
-    - name: Set up Go
-      uses: actions/setup-go@v5
-      with:
-        go-version-file: 'go.mod'
-
     - name: Build ${{ matrix.goos }}_${{ matrix.goarch }}
-      shell: bash
-      run: |
-        mkdir -p build
-        [[ "${{ matrix.goos }}" == "windows" ]] && EXT=".exe" || EXT=""
+      id: build
+      uses: coalaura/build@v1
+      with:
+        os: ${{ matrix.goos }}
+        arch: ${{ matrix.goarch }}
+        optimization: compatible
+        generate: 'false'
+        output: build/mksvc_${{ github.ref_name }}_${{ matrix.goos }}_${{ matrix.goarch }}${{ matrix.goos == 'windows' && '.exe' || '' }}
+        go-flags: |
+          -trimpath
+          -buildvcs=false
+          -ldflags=-s -w -X main.Version=${{ github.ref_name }}
 
-        OUT="build/mksvc_${{ github.ref_name }}_${{ matrix.goos }}_${{ matrix.goarch }}${EXT}"
-
-        GOOS=${{ matrix.goos }} \
-        GOARCH=${{ matrix.goarch }} \
-        CGO_ENABLED=0 \
-        go build \
-          -trimpath \
-          -buildvcs=false \
-          -ldflags "-s -w -X 'main.Version=${{ github.ref_name }}'" \
-          -o "$OUT" .
+    - name: Sign ${{ matrix.goos }}_${{ matrix.goarch }}
+      id: sign
+      uses: coalaura/sign@v1
+      with:
+        path: ${{ steps.build.outputs.path }}
+        key: ${{ secrets.SIGNING_KEY }}
+        passphrase: ${{ secrets.SIGNING_KEY_PASSPHRASE }}
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
         name: mksvc_${{ github.ref_name }}_${{ matrix.goos }}_${{ matrix.goarch }}
-        path: build/*
+        path: ${{ steps.sign.outputs.path }}
 
   release:
     needs: build

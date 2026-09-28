@@ -52,8 +52,6 @@ type CLI struct {
 }
 
 func main() {
-	go log.WaitForInterrupt(true)
-
 	var cli CLI
 
 	kong.Parse(&cli,

@@ -1,7 +1,6 @@
 [Unit]
 Description=Example
-After=network-online.target
-Requires=network-online.target
+After=local-fs.target
 StartLimitBurst=10
 StartLimitIntervalSec=60
 
@@ -10,16 +9,17 @@ Type=simple
 User=example
 Group=example
 
-WorkingDirectory=/var/example
-ExecStart=/var/example/example
+WorkingDirectory=/opt/example
+ExecStart=/opt/example/example
 
-StandardOutput=append:/var/example/logs/example.log
-StandardError=append:/var/example/logs/example.log
+StandardOutput=append:/opt/example/logs/example.log
+StandardError=append:/opt/example/logs/example.log
 StandardInput=null
 
 # Filesystem Sandboxing
 ProtectSystem=strict
-ReadOnlyPaths=/var/example
+ReadOnlyPaths=/opt/example
+ReadWritePaths=/opt/example/logs
 ProtectHome=yes
 PrivateTmp=yes
 PrivateMounts=yes
@@ -40,21 +40,23 @@ ProtectProc=invisible
 ProcSubset=pid
 LockPersonality=yes
 ProtectHostname=yes
-UtmpMode=missing
+UtmpMode=no
 NoNewPrivileges=yes
 PrivateIPC=yes
+PrivateUsers=no
 RestrictNamespaces=yes
 RemoveIPC=yes
 RestrictRealtime=yes
 RestrictSUIDSGID=true
 KeyringMode=private
+CoredumpFilter=0
 
 # Memory Protection
 MemoryDenyWriteExecute=yes
 
 # Network Restriction
-RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
-PrivateNetwork=no
+RestrictAddressFamilies=AF_UNIX
+PrivateNetwork=yes
 
 # Syscall Filtering
 CapabilityBoundingSet=
@@ -62,9 +64,9 @@ SystemCallErrorNumber=EPERM
 SystemCallFilter=~@clock @cpu-emulation @debug @module @mount @obsolete @reboot @swap @resources @raw-io @privileged @keyring @pkey @memlock
 InaccessiblePaths=-/bin -/usr/bin -/sbin -/usr/sbin -/usr/local/bin
 
-Restart=always
+# Restart & Runtime
+Restart=on-failure
 RestartSec=3
-RuntimeMaxSec=5d
 
 # Defaults
 LimitCORE=0

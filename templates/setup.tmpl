@@ -95,8 +95,12 @@ fi
 
 echo "Setting permissions..."
 
-chown root:root "${path}" "${conf_dir}" "${path}/${name}" "${conf_dir}/${name}.conf" "${conf_dir}/${name}.service" \
-    "${conf_dir}/${name}_logs.conf" "${conf_dir}/setup.sh" "${conf_dir}/uninstall.sh"
+if [[ -f "${conf_dir}/svc.yml" ]]; then
+    chown root:root "${conf_dir}/svc.yml"
+    chmod 0700 "${conf_dir}/svc.yml"
+fi
+
+chown root:root "${path}" "${conf_dir}" "${path}/${name}" "${conf_dir}/${name}.conf" "${conf_dir}/${name}.service" "${conf_dir}/${name}_logs.conf" "${conf_dir}/setup.sh" "${conf_dir}/uninstall.sh"
 chmod 0755 "${path}"
 chmod 0755 "${conf_dir}"
 chmod 0755 "${path}/${name}"
