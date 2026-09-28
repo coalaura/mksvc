@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1040" height="280" viewBox="0 0 1040 280" fill="none" role="img" aria-labelledby="title description">
+  <title id="title">mksvc</title>
+  <desc id="description">Hardened systemd service generator. A custom mk[svc] wordmark encloses svc in a protective boundary inspired by systemd section brackets.</desc>
+  <style>
+    .name { stroke: #e7ebe5; }
+    .service { stroke: #afd391; }
+    .boundary { stroke: #afd391; }
+    .caption { fill: #aab6ad; }
+  </style>
+
+  <!-- Hand-drawn letter paths keep the wordmark independent of installed fonts. -->
+  <g id="wordmark" transform="translate(-32 -6) scale(1.08)">
+    <g class="name" stroke-width="16" stroke-linecap="square" stroke-linejoin="round">
+      <path id="letter-m" d="M224 178V117 M224 132C224 106 260 106 260 132V178 M260 132C260 106 296 106 296 132V178"/>
+      <path id="letter-k" d="M332 78V178 M382 117L335 151 M354 138L386 178"/>
+    </g>
+
+    <!-- Heavy section brackets and fine connecting edges form the service boundary. -->
+    <g class="boundary">
+      <path d="M452 76H424V190H452 M770 76H798V190H770" stroke-width="7"/>
+      <path d="M452 76H770 M452 190H770" stroke-width="2" opacity="0.35"/>
+    </g>
+
+    <g class="service" stroke-width="16" stroke-linecap="square" stroke-linejoin="round">
+      <path id="letter-s" d="M539 122C525 111 488 109 488 132C488 153 543 137 543 160C543 184 505 183 488 173"/>
+      <path id="letter-v" d="M579 119L608 177L637 119"/>
+      <path id="letter-c" d="M724 124C708 108 672 113 672 147C672 180 707 186 725 170"/>
+    </g>
+  </g>
+
+  <text class="caption" x="520" y="245" text-anchor="middle" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="24" letter-spacing="0.3">Hardened systemd service generator</text>
+</svg>

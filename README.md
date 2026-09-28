@@ -1,4 +1,8 @@
-# mksvc
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/banner.svg">
+  <source media="(prefers-color-scheme: light)" srcset=".github/banner-light.svg">
+  <img alt="mksvc - hardened systemd service generator" src=".github/banner-light.svg">
+</picture>
 
 A hardened, opinionated Systemd service generator for modern Linux deployments.
 
