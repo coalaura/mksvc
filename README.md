@@ -63,3 +63,9 @@ Running `mksvc` again will update the security sandbox settings but keep your `E
 * **Kernel**: Logs, modules and tunables are protected. `/dev` is private.
 * **Memory**: `MemoryDenyWriteExecute` enabled by default (WASM/JIT can opt-in).
 * **Ownership**: Application code and installed policy remain root-owned. Only logs, the optional `data` directory, and an explicitly enabled application config file are service-writable.
+
+### Example security analysis
+
+The included `example/example.service` (default mksvc options) scores **0.5 (SAFE)** with `systemd-analyze security --offline=1`:
+
+![systemd-analyze security report](.github/analyze.png)
