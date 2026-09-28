@@ -19,7 +19,7 @@ StandardInput=null
 # Filesystem Sandboxing
 ProtectSystem=strict
 ReadOnlyPaths=/opt/example
-ReadWritePaths=/opt/example/logs
+ReadWritePaths=/opt/example/logs/example.log
 ProtectHome=yes
 PrivateTmp=yes
 PrivateMounts=yes
@@ -72,6 +72,8 @@ RestartSec=3
 LimitCORE=0
 LimitNOFILE=65536
 LimitNPROC=4096
+
+# Custom
 TimeoutStartSec=300
 TimeoutStopSec=300
 
