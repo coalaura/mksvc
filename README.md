@@ -10,15 +10,17 @@ A hardened, opinionated Systemd service generator for modern Linux deployments.
 
 ## Installation
 
-Download the latest binary and `checksums.txt` from the [Releases Page](https://github.com/coalaura/mksvc/releases), or install a verified prebuilt binary with one command:
+Download the latest binary and `checksums.txt` from the [Releases Page](https://github.com/coalaura/mksvc/releases) or install a verified prebuilt binary with one command:
 
 ```bash
 curl -sL https://src.ws2.sh/mksvc/install.sh | bash
 ```
 
+The shell installer supports Linux and macOS on amd64/arm64, using either `sha256sum` or macOS's `shasum -a 256`. macOS installations use the `wheel` group. Generation works on macOS and Windows too; the generated services and setup scripts target Linux/systemd.
+
 ## Usage
 
-Run `mksvc` in the deployed service root. The path must be below `/opt`, `/srv`, `/var/lib` or `/usr/local/lib`, and the executable must have the same name as the service.
+Run `mksvc` in the deployed service root. The path must be below `/opt`, `/srv`, `/var/lib` or `/usr/local/lib` and the executable must have the same name as the service.
 
 ```bash
 # Generate configs interactively
@@ -43,7 +45,9 @@ The tool creates a `conf/` directory containing:
 
 ### Logging
 
-File logging remains the default. Standard output and error append to `logs/<name>.log`, or `<name>.log` with `--no-log-dir`. Setup preserves existing log contents and rotates logs as root. The log directory is root-owned and cannot be modified by the service; the active log file is owned by `root:<service>` with mode `0660`, allowing the service to write its contents without replacing its pathname. Only that file, not the entire log directory, is writable inside the sandbox. Applications that create additional log files should use stdout/stderr instead.
+File logging remains the default. Standard output and error append to `logs/<name>.log` or `<name>.log` with `--no-log-dir`. Setup preserves existing log contents and rotates logs as root. The log directory is root-owned and cannot be modified by the service; the active log file is owned by `root:<service>` with mode `0660`, allowing the service to write its contents without replacing its pathname. Only that file, not the entire log directory, is writable inside the sandbox. Applications that create additional log files should use stdout/stderr instead.
+
+The rotation policy is **daily or above 50 MiB** (`daily` plus `maxsize 50M`), retaining seven rotations, with compression delayed by one rotation. The host's existing logrotate job evaluates this policy; ensure it is enabled and includes `/etc/logrotate.d`. Size-based rotation only happens when that job runs, so a daily schedule cannot rotate earlier in the day when the log crosses 50 MiB. Configure the host's existing schedule more frequently if earlier size-based rotation is needed. This is a threshold, not a hard size cap. `copytruncate` preserves systemd's open log descriptor but can lose writes between copying and truncating. File logging requires logrotate; setup validates the configuration before stopping the application.
 
 Use `--journald` to send stdout/stderr to the system journal instead. Interactive mode asks about journald first and only asks file-logging questions when it is disabled. This choice is saved in `conf/svc.yml`; `--no-journald` switches back to files.
 
@@ -59,8 +63,18 @@ Journald mode creates no log files or logrotate configuration and removes a stal
 
 `mksvc` is designed to run repeatedly without destroying your work.
 
-1. **Managed Keys**: Security attributes (e.g., `ProtectSystem`, `SystemCallFilter`) are owned by the tool. They are reset based on your interactive choices. `DeviceAllow` rules are regenerated from the device options, so disabling device access also removes old rules.
-2. **Custom Keys**: `Environment` values, managed timeout overrides, and custom `After` and `Requires` targets are preserved. Other unmanaged directives are rejected because they are unsafe to import automatically.
+1. **Managed Keys**: Security attributes (e.g., `ProtectSystem`, `SystemCallFilter`) are owned by the tool and reset based on your configuration.
+2. **Custom Keys**: `[Service]` supports `Environment`, `TimeoutStartSec`, `TimeoutStopSec` and `DeviceAllow`. `[Unit]` supports `After`, `Before`, `Requires`, `Wants`, `Requisite`, `BindsTo`, `PartOf` and `Conflicts`. `[Install]` preserves `WantedBy` and `RequiredBy`, including an explicitly empty install section. Unsupported unmanaged directives and sections are rejected instead of silently dropped.
+
+The parser accepts `#` and `;` comments, continued logical lines, repeated sections and repeated assignments. Value syntax and per-key assignment order are retained so systemd applies its own quoting and reset rules; dependency assignments do not reset dependencies on an empty value. Logical lines are limited to 1 MiB. Tool-managed startup targets are recalculated on regeneration.
+
+Restricted device access (`--devices`, without `--full-devices`) retains custom `DeviceAllow` rules and resets. If no rules were provided, it defaults to `char-usb rwm` and `char-tty rwm`. These are not general GPU/USB-serial profiles: add appropriate device paths/classes and arrange Unix permissions, for example through udev. Disabling devices or selecting full-device access removes the rules. An explicitly empty list remains closed rather than turning into full-device access.
+
+`--writable-config` defaults to `config.yml`; use `--config-file=NAME` to select another file. This permits in-place writes, not temporary-sibling-and-rename saves, because the executable's parent directory stays read-only. `--writable` grants only `<path>/data`, not the entire working directory.
+
+Use `--cpu-quota=`, `--memory-max=` or `--env-file=` to clear saved settings; omitting the flag keeps the previous value. Interactive prompts use Enter to keep a value and `-` to clear it. Positive fractional CPU quotas such as `0.5%` are supported. Environment files should be root-owned with mode `0600`: the system manager reads them before launching the service, so service-group readability is unnecessary.
+
+Generation renders all outputs before publishing, serializes writers with an OS-held `conf/.mksvc.lock` and snapshots previous files in a private recovery journal. Ordinary publication failures roll back; after interruption, the next writing run restores the previous generation before loading settings. Each file uses same-directory native replacement; Windows never deletes the old file as a rename fallback. The set is recoverable rather than an atomic directory swap: do not run setup concurrently with generation. Leave the lock file in place; the OS releases its lock automatically. A remaining `.mksvc-recovery.json` is needed for recovery and can contain previous environment values. Dry-run refuses an outstanding recovery journal. Durability ultimately depends on the host filesystem; Unix directory changes are synced and Windows replacements request write-through.
 
 ### Example
 If you manually add this to `conf/my-app.service`:
@@ -76,10 +90,12 @@ Running `mksvc` again will update the security sandbox settings but keep your `E
 ## Security Features
 
 * **Filesystem**: Root is read-only (`ProtectSystem=strict`). Working directory is read-only by default.
-* **Process**: No new privileges, restricted namespaces. Shells/subprocess capabilities are opt-in.
+* **Process**: No new privileges, restricted namespaces. Common executable directories are non-executable unless `--subprocess` is enabled, but remain readable. This is best-effort external-tool blocking, not a ban on child processes: threads, forks, self-reexecution and executables elsewhere remain possible.
 * **Network**: Offline/Airgapped by default (`PrivateNetwork=yes`). Optional "Server Mode" for binding ports.
 * **Kernel**: Logs, modules and tunables are protected. `/dev` is private.
-* **Memory**: `MemoryDenyWriteExecute` enabled by default (WASM/JIT can opt-in).
+* **Memory**: `MemoryDenyWriteExecute` enabled by default (`--exec-memory` opts out). `memfd_create` is denied independently unless `--memfd` is enabled for compatible IPC/JIT workloads; that exception reopens a documented executable-memory bypass. Some runtimes need both options.
+* **Executable files**: Writable data/config/log/runtime locations, `/tmp`, `/var/tmp` and `/dev/shm` are non-executable even with `--subprocess`. Applications that load executable files or native libraries from those locations need a different deployment layout. Interpreters can still read scripts; this does not prohibit all code execution.
+* **User namespaces**: `--private-users` maps root and the service UID/GID to themselves, with other IDs generally unmapped. It does not make the service UID 0.
 * **Ownership**: Application code, installed policy and log directory entries remain root-owned. Only the active log file's contents, the optional `data` directory and an explicitly enabled application config file are service-writable.
 
 ### Example security analysis

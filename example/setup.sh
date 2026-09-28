@@ -56,6 +56,19 @@ for file in "${conf_dir}/${name}.conf" "${conf_dir}/${name}.service" "${conf_dir
     fi
 done
 
+# Rotation is required for file logging, before stopping the existing service.
+if ! command -v logrotate >/dev/null 2>&1; then
+    echo "File logging requires logrotate." >&2
+    exit 1
+fi
+
+(
+    rotation_check=$(mktemp)
+    trap 'rm -f -- "${rotation_check}"' EXIT
+    install -o root -g root -m 0600 "${conf_dir}/${name}_logs.conf" "${rotation_check}"
+    logrotate --debug "${rotation_check}"
+)
+
 if [ -L "${path}/${name}" ] || [ ! -f "${path}/${name}" ]; then
     echo "Missing or unsafe service executable: ${path}/${name}" >&2
     exit 1
@@ -175,13 +188,9 @@ for archive in "${log_file}".[0-9]*; do
     chmod 0640 "${archive}"
 done
 
-if command -v logrotate >/dev/null 2>&1; then
-    echo "Installing logrotate config..."
+echo "Installing logrotate config for the host's existing rotation schedule..."
 
-    install -o root -g root -m 0644 "${conf_dir}/${name}_logs.conf" "/etc/logrotate.d/${name}"
-else
-    echo "Logrotate not found, skipping..."
-fi
+install -o root -g root -m 0644 "${conf_dir}/${name}_logs.conf" "/etc/logrotate.d/${name}"
 
 echo "Reloading daemon..."
 

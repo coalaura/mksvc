@@ -27,13 +27,14 @@ type CLI struct {
 	Listening       *bool  `name:"listening" negatable:"" help:"Server mode (port binding)."`
 	PrivilegedPorts *bool  `name:"privileged-ports" negatable:"" help:"Ports below 1024."`
 	ExecMemory      *bool  `name:"exec-memory" negatable:"" help:"JIT/executable memory."`
-	WritableFiles   *bool  `name:"writable" negatable:"" help:"Writable working directory."`
+	Memfd           *bool  `name:"memfd" negatable:"" help:"Anonymous memory-backed files (memfd_create)."`
+	WritableFiles   *bool  `name:"writable" negatable:"" help:"Writable data subdirectory."`
 	WritableConfig  *bool  `name:"writable-config" negatable:"" help:"Writable application config file."`
 	ConfigFile      string `name:"config-file" help:"Writable config filename (default: config.yml)."`
 	RuntimeDir      *bool  `name:"runtime-dir" negatable:"" help:"Runtime directory (/run)."`
 	Devices         *bool  `name:"devices" negatable:"" help:"Hardware device access."`
 	FullDevices     *bool  `name:"full-devices" negatable:"" help:"Unrestricted device access."`
-	Subprocess      *bool  `name:"subprocess" negatable:"" help:"Shell/subprocess execution."`
+	Subprocess      *bool  `name:"subprocess" negatable:"" help:"Allow access to common external executables."`
 	SeparateLogDir  *bool  `name:"log-dir" negatable:"" help:"Separate logs subdirectory."`
 	Journald        *bool  `name:"journald" negatable:"" help:"Send output to journald instead of log files."`
 
@@ -42,11 +43,11 @@ type CLI struct {
 	PrivateUsers  *bool `name:"private-users" negatable:"" help:"User namespace isolation."`
 
 	// Resource limits
-	CPUQuota  string `name:"cpu-quota" help:"CPU quota (e.g., 200%% for 2 cores)."`
-	MemoryMax string `name:"memory-max" help:"Memory limit (e.g., 2G, 512M)."`
+	CPUQuota  *string `name:"cpu-quota" help:"CPU quota (e.g., 0.5%% or 200%%); empty clears it."`
+	MemoryMax *string `name:"memory-max" help:"Memory limit (e.g., 2G, 512M); empty clears it."`
 
 	// Environment
-	EnvFile string `name:"env-file" help:"Path to environment file."`
+	EnvFile *string `name:"env-file" help:"Path to environment file; empty clears it."`
 
 	Help    bool `short:"h" help:"Show detailed help."`
 	Version bool `short:"v" help:"Print version."`
@@ -75,6 +76,22 @@ func main() {
 
 	confDir := "conf"
 	configPath := filepath.Join(confDir, "svc.yml")
+
+	if !cli.DryRun {
+		lock, err := beginGeneration(confDir)
+		log.MustExit(err)
+
+		defer lock.Close()
+	} else {
+		_, err := os.Lstat(filepath.Join(confDir, recoveryFilename))
+		if err == nil {
+			log.MustExit(fmt.Errorf("interrupted generation needs recovery; rerun without --dry-run first"))
+		}
+
+		if err != nil && !os.IsNotExist(err) {
+			log.MustExit(err)
+		}
+	}
 
 	cfg, err := LoadConfig(configPath)
 	if err != nil && !os.IsNotExist(err) {
@@ -172,6 +189,10 @@ func applyOverrides(cfg *ServiceConfig, cli *CLI) {
 		cfg.ExecMemory = *cli.ExecMemory
 	}
 
+	if cli.Memfd != nil {
+		cfg.Memfd = *cli.Memfd
+	}
+
 	if cli.WritableFiles != nil {
 		cfg.WritableFiles = *cli.WritableFiles
 	}
@@ -225,17 +246,17 @@ func applyOverrides(cfg *ServiceConfig, cli *CLI) {
 	}
 
 	// Resource limits
-	if cli.CPUQuota != "" {
-		cfg.CPUQuota = cli.CPUQuota
+	if cli.CPUQuota != nil {
+		cfg.CPUQuota = *cli.CPUQuota
 	}
 
-	if cli.MemoryMax != "" {
-		cfg.MemoryMax = cli.MemoryMax
+	if cli.MemoryMax != nil {
+		cfg.MemoryMax = *cli.MemoryMax
 	}
 
 	// Environment
-	if cli.EnvFile != "" {
-		cfg.EnvFile = cli.EnvFile
+	if cli.EnvFile != nil {
+		cfg.EnvFile = *cli.EnvFile
 	}
 }
 
@@ -286,9 +307,15 @@ func runInteractive(cfg *ServiceConfig) {
 	)
 
 	cfg.WritableFiles = ask(
-		"Writable Directory",
+		"Writable Data Directory",
 		"Creates a writable data directory inside the service root.",
 		cfg.WritableFiles,
+	)
+
+	cfg.Memfd = ask(
+		"Anonymous Memory Files",
+		"Allow memfd_create for shared-memory IPC or runtimes that require it. Independent of executable memory.",
+		cfg.Memfd,
 	)
 
 	cfg.WritableConfig = ask(
@@ -332,8 +359,8 @@ func runInteractive(cfg *ServiceConfig) {
 
 	// Process section
 	cfg.Subprocess = ask(
-		"Subprocesses",
-		"Allow spawning shell commands or external binaries.",
+		"External Executables",
+		"Allow common executable directories. Disabling is best-effort; threads and process creation remain available.",
 		cfg.Subprocess,
 	)
 
@@ -370,10 +397,11 @@ func runInteractive(cfg *ServiceConfig) {
 
 	// Resource limits
 	log.Println()
-	log.Println("Resource Limits (leave empty for no limit)")
+	log.Println("Resource Limits (Enter keeps the current value; '-' clears it)")
 
-	cfg.CPUQuota = askString("  CPU Quota (e.g., 200%)", cfg.CPUQuota)
-	cfg.MemoryMax = askString("  Memory Max (e.g., 2G)", cfg.MemoryMax)
+	cfg.CPUQuota = askOptionalString("  CPU Quota (e.g., 0.5%, 200%)", cfg.CPUQuota)
+	cfg.MemoryMax = askOptionalString("  Memory Max (e.g., 2G)", cfg.MemoryMax)
+	cfg.EnvFile = askOptionalString("  Environment file (absolute path)", cfg.EnvFile)
 
 	log.Println()
 }
@@ -399,7 +427,7 @@ func askString(prompt, def string) string {
 
 	log.Printf("%s [%s]: ", prompt, display)
 
-	val, err := log.Read("", 12)
+	val, err := log.Read("", 4096)
 	log.MustFail(err)
 
 	val = strings.TrimSpace(val)
@@ -409,6 +437,15 @@ func askString(prompt, def string) string {
 	}
 
 	return val
+}
+
+func askOptionalString(prompt, def string) string {
+	value := askString(prompt, def)
+	if value == "-" {
+		return ""
+	}
+
+	return value
 }
 
 func dryRun(cfg *ServiceConfig, confDir string) {
@@ -423,6 +460,7 @@ func dryRun(cfg *ServiceConfig, confDir string) {
 	log.Printf("  Listening:        %v\n", cfg.Listening)
 	log.Printf("  PrivilegedPorts:  %v\n", cfg.PrivilegedPorts)
 	log.Printf("  ExecMemory:       %v\n", cfg.ExecMemory)
+	log.Printf("  Memfd:            %v\n", cfg.Memfd)
 	log.Printf("  WritableFiles:    %v\n", cfg.WritableFiles)
 	log.Printf("  WritableConfig:   %v\n", cfg.WritableConfig)
 
@@ -449,9 +487,7 @@ func dryRun(cfg *ServiceConfig, confDir string) {
 	log.Printf("  CPUQuota:         %s\n", valueOr(cfg.CPUQuota, "none"))
 	log.Printf("  MemoryMax:        %s\n", valueOr(cfg.MemoryMax, "none"))
 
-	if cfg.EnvFile != "" {
-		log.Printf("  EnvFile:          %s\n", cfg.EnvFile)
-	}
+	log.Printf("  EnvFile:          %s\n", valueOr(cfg.EnvFile, "none"))
 
 	log.Println()
 	log.Println("Would generate:")
@@ -478,61 +514,10 @@ func valueOr(val, fallback string) string {
 func writeConfigs(cfg *ServiceConfig, confDir, configPath, servicePath string) error {
 	log.Println("Writing configs...")
 
-	info, err := os.Lstat(confDir)
-	if os.IsNotExist(err) {
-		err = os.Mkdir(confDir, 0755)
-		if err != nil {
-			return err
-		}
-	} else if err != nil {
-		return err
-	} else if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("%s must be a real directory", confDir)
-	}
-
-	err = cfg.SaveConfig(configPath)
+	files, err := cfg.renderFiles(filepath.Base(configPath), filepath.Base(servicePath))
 	if err != nil {
 		return err
 	}
 
-	err = cfg.WriteTemplate(servicePath, ServiceTmpl)
-	if err != nil {
-		return err
-	}
-
-	err = cfg.WriteTemplate(filepath.Join(confDir, "{name}.conf"), UserTmpl)
-	if err != nil {
-		return err
-	}
-
-	err = cfg.WriteTemplate(filepath.Join(confDir, "setup.sh"), SetupTmpl)
-	if err != nil {
-		return err
-	}
-
-	err = cfg.WriteTemplate(filepath.Join(confDir, "uninstall.sh"), UninstallTmpl)
-	if err != nil {
-		return err
-	}
-
-	logrotatePath := filepath.Join(confDir, cfg.Name+"_logs.conf")
-
-	if cfg.Journald {
-		info, err = os.Lstat(logrotatePath)
-		if os.IsNotExist(err) {
-			return nil
-		}
-
-		if err != nil {
-			return err
-		}
-
-		if !info.Mode().IsRegular() {
-			return fmt.Errorf("refusing to remove non-regular logrotate config %s", logrotatePath)
-		}
-
-		return os.Remove(logrotatePath)
-	}
-
-	return cfg.WriteTemplate(logrotatePath, LogrotateTmpl)
+	return commitGeneration(confDir, files, writeFileAtomic)
 }

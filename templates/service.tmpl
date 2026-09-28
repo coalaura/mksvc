@@ -6,6 +6,9 @@ After={{ .After }}{{ end }}
 Requires={{ .Requires }}{{ end }}
 StartLimitBurst=10
 StartLimitIntervalSec=60
+{{- if .UnitCustom }}
+{{ .FormatUnitCustom }}
+{{- end }}
 
 [Service]
 Type=simple
@@ -33,12 +36,19 @@ ProtectSystem=strict
 ReadOnlyPaths={{ .Path }}
 {{- if not .Journald }}
 ReadWritePaths={{ .Path }}/{{ if .SeparateLogDir }}logs/{{ end }}{{ .Name }}.log
+NoExecPaths={{ .Path }}/{{ if .SeparateLogDir }}logs/{{ end }}{{ .Name }}.log
 {{- end }}
 {{- if .WritableFiles }}
 ReadWritePaths={{ .Path }}/data
+NoExecPaths={{ .Path }}/data
 {{- end }}
 {{- if .WritableConfig }}
 ReadWritePaths={{ .Path }}/{{ .ConfigFile }}
+NoExecPaths={{ .Path }}/{{ .ConfigFile }}
+{{- end }}
+NoExecPaths=/tmp /var/tmp -/dev/shm
+{{- if .RuntimeDir }}
+NoExecPaths=/run/{{ .Name }}
 {{- end }}
 ProtectHome=yes
 PrivateTmp=yes
@@ -47,7 +57,7 @@ UMask=0077
 
 # Kernel & Hardware Protection
 PrivateDevices={{ if .Devices }}no{{ else }}yes{{ end }}
-DevicePolicy={{ if .Devices }}{{ if .FullDevices }}none{{ else }}auto{{ end }}{{ else }}closed{{ end }}
+DevicePolicy={{ if and .Devices .FullDevices }}auto{{ else }}closed{{ end }}
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectKernelLogs=yes
@@ -60,7 +70,6 @@ ProtectProc=invisible
 ProcSubset=pid
 LockPersonality=yes
 ProtectHostname=yes
-UtmpMode=no
 NoNewPrivileges=yes
 PrivateIPC=yes
 PrivateUsers={{ if .PrivateUsers }}yes{{ else }}no{{ end }}
@@ -91,9 +100,11 @@ AmbientCapabilities=CAP_NET_BIND_SERVICE
 CapabilityBoundingSet=
 {{- end }}
 SystemCallErrorNumber=EPERM
-SystemCallFilter=~@clock @cpu-emulation @debug @module @mount @obsolete @reboot @swap @resources{{ if not .Devices }} @raw-io{{ end }} @privileged @keyring @pkey @memlock
+SystemCallFilter=~@clock @cpu-emulation @debug @module @mount @obsolete @reboot @swap @resources{{ if not .Devices }} @raw-io{{ end }} @privileged @keyring @pkey @memlock{{ if not .Memfd }} memfd_create{{ end }}
 {{- if not .Subprocess }}
-InaccessiblePaths=-/bin -/usr/bin -/sbin -/usr/sbin -/usr/local/bin{{ end }}
+# Best-effort external-tool restriction; process creation and threads are unaffected.
+NoExecPaths=-/bin -/usr/bin -/sbin -/usr/sbin -/usr/local/bin
+ExecPaths={{ .Path }}/{{ .Name }}{{ end }}
 {{- if or .CPUQuota .MemoryMax }}
 
 # Resource Limits
@@ -118,4 +129,4 @@ RestartSec=3
 {{- end }}
 
 [Install]
-WantedBy=multi-user.target
+{{ if .HasInstallSection }}{{ .FormatInstallCustom }}{{ else }}WantedBy=multi-user.target{{ end }}

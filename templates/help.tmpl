@@ -26,13 +26,14 @@
        {{.B}}--listening{{.R}}           Server mode / port binding       (default: off)
        {{.B}}--privileged-ports{{.R}}    Bind to ports < 1024             (default: off)
        {{.B}}--exec-memory{{.R}}         JIT / executable memory          (default: off)
+       {{.B}}--memfd{{.R}}               Anonymous memory-backed files    (default: off)
        {{.B}}--writable{{.R}}            Writable data directory          (default: off)
        {{.B}}--writable-config{{.R}}     Writable application config file (default: off)
        {{.B}}--config-file=NAME{{.R}}    Config filename                  (default: config.yml)
        {{.B}}--runtime-dir{{.R}}         Create /run/<name>               (default: off)
        {{.B}}--devices{{.R}}             Hardware device access           (default: off)
        {{.B}}--full-devices{{.R}}        Unrestricted device access       (default: off)
-       {{.B}}--subprocess{{.R}}          Shell / subprocess execution     (default: off)
+       {{.B}}--subprocess{{.R}}          Access to external executables   (default: off)
        {{.B}}--log-dir{{.R}}             Separate logs subdirectory       (default: on)
        {{.B}}--journald{{.R}}            Journal instead of log files     (default: off)
 
@@ -43,6 +44,9 @@
    {{.U}}Resource Limits{{.R}}
        {{.B}}--cpu-quota{{.R}} <val>     CPU quota (e.g., 200% for 2 cores)
        {{.B}}--memory-max{{.R}} <val>    Memory limit (e.g., 2G, 512M)
+
+       Clear saved values with {{.B}}--cpu-quota= --memory-max= --env-file={{.R}}.
+       In interactive mode, Enter keeps the current value; '-' clears it.
 
 {{.B}}CONFIGURATION REFERENCE{{.R}}
    {{.B}}Network Access{{.R}} (--network)
@@ -74,9 +78,15 @@
        {{.U}}Enable:{{.R}}  Node.js, Java, PHP, Python w/ native extensions, wazero/WASM.
        {{.U}}Disable:{{.R}} Pure Go binaries, Rust, C/C++ without JIT.
 
+   {{.B}}Anonymous Memory Files{{.R}} (--memfd)
+       Allows memfd_create, denied by default. Some shared-memory IPC libraries
+       and JIT runtimes require it. Independent of --exec-memory; some runtimes
+       need both. Enabling it reopens a documented MemoryDenyWriteExecute bypass.
+
    {{.B}}Writable Data Directory{{.R}} (--writable)
        Creates <path>/data owned by the service user and adds it to
        ReadWritePaths. Application code and configuration remain read-only.
+       Writable data, config, log, runtime and temporary paths are non-executable.
 
        {{.U}}Enable:{{.R}}  SQLite databases, local caches, uploaded file storage.
        {{.U}}Disable:{{.R}} Stateless services, external databases.
@@ -85,6 +95,8 @@
        Creates or adopts one named file next to the executable, owned by the
        service user with mode 0600. Existing contents are preserved by setup.
        Generated files under conf/ remain root-owned and read-only.
+       Defaults to config.yml. Only in-place updates are allowed; atomic saves
+       using a temporary sibling and rename require a writable parent directory.
 
        {{.U}}Enable:{{.R}}  Services that generate tokens or persist config changes.
        {{.U}}Disable:{{.R}} Services with immutable or externally managed configuration.
@@ -97,26 +109,32 @@
        {{.U}}Disable:{{.R}} Services binding to TCP ports without socket files.
 
    {{.B}}Hardware Devices{{.R}} (--devices)
-       Grants access to selected device classes. Disables PrivateDevices and
-       adds AF_NETLINK for udev. Setup includes an example udev ownership rule;
-       some distributions instead require explicit dialout or plugdev membership.
+       Defaults to DeviceAllow=char-usb rwm and char-tty rwm with a closed policy.
+       Custom DeviceAllow lines (including resets) are preserved in this mode.
+       Other serial/GPU classes need explicit rules and Unix device permissions.
+       Disables PrivateDevices and adds AF_NETLINK. Setup shows a udev rule.
 
        {{.U}}Enable:{{.R}}  IoT controllers, serial communication, GPU compute (CUDA).
        {{.U}}Disable:{{.R}} Web services, anything not directly talking to hardware.
 
    {{.B}}Full Device Access{{.R}} (--full-devices)
-       Removes device sandboxing entirely. Sets DevicePolicy=none, removes
-       DeviceAllow restrictions. Falls back to standard Unix permissions.
+       Sets DevicePolicy=auto with no DeviceAllow rules and PrivateDevices=no.
+       Falls back to Unix permissions and remaining kernel/capability controls.
+       Disabling devices or enabling full access removes preserved DeviceAllow.
 
        {{.U}}Enable:{{.R}}  libusb applications, raw HID, when standard rules fail.
        {{.U}}Disable:{{.R}} If --devices alone works. Always try restricted mode first.
 
    {{.B}}Subprocesses{{.R}} (--subprocess)
-       Allows executing external binaries. When disabled, masks /bin, /usr/bin,
-       /sbin, /usr/sbin, /usr/local/bin via InaccessiblePaths.
+       Allows execution from common binary directories. When disabled, marks
+       /bin, /usr/bin, /sbin, /usr/sbin and /usr/local/bin non-executable while
+       keeping their contents readable. This is best-effort external-tool
+       blocking: threads, process creation and self-reexecution remain possible.
+       Writable paths remain non-executable even when this option is enabled.
+       Interpreters can still read scripts; noexec is not a code-execution boundary.
 
        {{.U}}Enable:{{.R}}  Apps shelling out to ffmpeg, git, imagemagick.
-       {{.U}}Disable:{{.R}} Self-contained binaries. Reduces attack surface drastically.
+       {{.U}}Disable:{{.R}} Self-contained binaries that do not require external tools.
 
     {{.B}}Journald{{.R}} (--journald, --no-journald)
         Sends stdout/stderr to the system journal instead of files. Skips file
@@ -127,8 +145,12 @@
     {{.B}}Separate Logs Directory{{.R}} (--log-dir)
         Places logs in <path>/logs/ instead of <path>/. Setup script creates the
         directory root-owned so the service cannot replace log pathnames.
-        Existing contents are preserved. The active log is root:<service> 0660;
-        rotation runs as root. Only this file is writable, not its directory.
+         Existing contents are preserved. The active log is root:<service> 0660;
+         rotation runs as root. Only this file is writable, not its directory.
+         Rotates daily or above 50 MiB when the host's existing logrotate job runs.
+         Requires logrotate; check frequency follows the host's schedule.
+         This is not a hard size cap. Keeps 7 rotations.
+         copytruncate can lose writes during its copy/truncate window.
         Requires a canonical path with root-owned, non-writable ancestors.
         Ignored with --journald.
 
@@ -143,8 +165,9 @@
        {{.U}}Disable:{{.R}} Anything needing external network access.
 
    {{.B}}Private Users{{.R}} (--private-users)
-       Enables user namespace isolation. The service runs in a separate user
-       namespace where it appears to be root but has no real privileges.
+       Enables user namespace isolation. Root and the service UID/GID map to
+       themselves; other IDs are generally unmapped and appear as nobody.
+       The service does not become UID 0 inside the namespace.
        Automatically disabled when --privileged-ports or --devices is enabled.
 
        {{.U}}Enable:{{.R}}  Maximum isolation for untrusted workloads.
@@ -155,7 +178,7 @@
        Limits CPU time as percentage. 100% = 1 core, 200% = 2 cores. Prevents
        runaway processes from starving other services.
 
-       {{.U}}Example:{{.R}} --cpu-quota=150%  (1.5 cores max)
+       {{.U}}Example:{{.R}} --cpu-quota=150% (1.5 cores), --cpu-quota=0.5% (0.005 cores)
 
    {{.B}}Memory Max{{.R}} (--memory-max)
        Hard memory limit. Process is killed (OOM) if exceeded. Supports K, M, G
@@ -166,7 +189,7 @@
 {{.B}}ALWAYS-ON HARDENING{{.R}}
        These settings are always enabled with no option to disable:
 
-       {{.B}}CoredumpFilter=0{{.R}}      Disables core dumps (prevents credential leaks)
+       {{.B}}CoredumpFilter=0{{.R}}      Excludes memory mappings from core dumps
        {{.B}}NoNewPrivileges=yes{{.R}}   Prevents privilege escalation via setuid
        {{.B}}ProtectSystem=strict{{.R}}  Root filesystem is read-only
        {{.B}}ProtectHome=yes{{.R}}       /home, /root, /run/user are inaccessible
@@ -180,7 +203,8 @@
        Example:  mksvc myapp /opt/myapp --env-file=/opt/myapp/.env
 
        The env file is {{.U}}not{{.R}} managed by mksvc. Create it manually with proper
-       permissions (chmod 600, owned by root and readable by the service group).
+       permissions (root-owned, chmod 600). The system manager reads it before
+       starting the service; the service user/group need not read the file.
 
 {{.B}}PERSISTENCE{{.R}}
        Configuration is saved to conf/svc.yml. On subsequent runs:
