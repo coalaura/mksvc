@@ -41,8 +41,8 @@ jobs:
       uses: coalaura/sign@v1
       with:
         path: ${{ steps.build.outputs.path }}
-        key: ${{ secrets.SIGNING_KEY }}
-        passphrase: ${{ secrets.SIGNING_KEY_PASSPHRASE }}
+        key: ${{ secrets.COALAURA_PFX }}
+        passphrase: ${{ secrets.COALAURA_PFX_PASSWORD }}
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
