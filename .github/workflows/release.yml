@@ -20,7 +20,7 @@ jobs:
 
     steps:
     - name: Checkout
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
 
     - name: Build ${{ matrix.goos }}_${{ matrix.goarch }}
       id: build
@@ -45,7 +45,7 @@ jobs:
         passphrase: ${{ secrets.COALAURA_PFX_PASSWORD }}
 
     - name: Upload artifact
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: mksvc_${{ github.ref_name }}_${{ matrix.goos }}_${{ matrix.goarch }}
         path: ${{ steps.sign.outputs.path }}
@@ -55,10 +55,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
 
     - name: Download all build artifacts
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v8
       with:
         path: ./artifacts
 
@@ -72,7 +72,7 @@ jobs:
       run: sha256sum mksvc_* > checksums.txt
 
     - name: Create GitHub release
-      uses: softprops/action-gh-release@v2
+      uses: softprops/action-gh-release@v3
       with:
         files: ./build/**
         name: "Release ${{ github.ref_name }}"
