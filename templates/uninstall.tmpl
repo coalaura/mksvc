@@ -43,10 +43,13 @@ else
     echo "Installed sysusers policy does not match; leaving it unchanged."
 fi
 
+{{- if not .Journald }}
+
 if [ -f "/etc/logrotate.d/${name}" ]; then
     echo "Removing logrotate config..."
     rm -f "/etc/logrotate.d/${name}"
 fi
+{{- end }}
 
 echo "Reloading daemon..."
 systemctl daemon-reload

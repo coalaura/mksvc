@@ -34,6 +34,7 @@
        {{.B}}--full-devices{{.R}}        Unrestricted device access       (default: off)
        {{.B}}--subprocess{{.R}}          Shell / subprocess execution     (default: off)
        {{.B}}--log-dir{{.R}}             Separate logs subdirectory       (default: on)
+       {{.B}}--journald{{.R}}            Journal instead of log files     (default: off)
 
    {{.U}}Advanced Security{{.R}}
        {{.B}}--localhost-only{{.R}}      Restrict network to localhost    (default: off)
@@ -117,9 +118,19 @@
        {{.U}}Enable:{{.R}}  Apps shelling out to ffmpeg, git, imagemagick.
        {{.U}}Disable:{{.R}} Self-contained binaries. Reduces attack surface drastically.
 
-   {{.B}}Separate Logs Directory{{.R}} (--log-dir)
-       Places logs in <path>/logs/ instead of <path>/. Setup script creates the
-       directory with correct ownership.
+    {{.B}}Journald{{.R}} (--journald, --no-journald)
+        Sends stdout/stderr to the system journal instead of files. Skips file
+        logging questions, log creation and logrotate generation/installation.
+        View logs with journalctl -u <name>.service. Default: off (file logging).
+        Existing logs are retained when switching backends.
+
+    {{.B}}Separate Logs Directory{{.R}} (--log-dir)
+        Places logs in <path>/logs/ instead of <path>/. Setup script creates the
+        directory root-owned so the service cannot replace log pathnames.
+        Existing contents are preserved. The active log is root:<service> 0660;
+        rotation runs as root. Only this file is writable, not its directory.
+        Requires a canonical path with root-owned, non-writable ancestors.
+        Ignored with --journald.
 
        {{.U}}Enable:{{.R}}  Cleaner project root, easier to .gitignore.
        {{.U}}Disable:{{.R}} Single-file deployments, legacy apps expecting logs in root.
@@ -195,7 +206,7 @@
        conf/svc.yml              Saved configuration
        conf/<name>.service       Systemd unit file
        conf/<name>.conf          Sysusers config (creates user/group)
-       conf/<name>_logs.conf     Logrotate configuration
+       conf/<name>_logs.conf     Logrotate configuration (file logging only)
        conf/setup.sh             Installation script
        conf/uninstall.sh         Uninstallation script
 

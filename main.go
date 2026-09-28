@@ -35,6 +35,7 @@ type CLI struct {
 	FullDevices     *bool  `name:"full-devices" negatable:"" help:"Unrestricted device access."`
 	Subprocess      *bool  `name:"subprocess" negatable:"" help:"Shell/subprocess execution."`
 	SeparateLogDir  *bool  `name:"log-dir" negatable:"" help:"Separate logs subdirectory."`
+	Journald        *bool  `name:"journald" negatable:"" help:"Send output to journald instead of log files."`
 
 	// Advanced security
 	LocalhostOnly *bool `name:"localhost-only" negatable:"" help:"Restrict network to localhost."`
@@ -131,7 +132,8 @@ func main() {
 
 	servicePath := filepath.Join(confDir, cfg.Name+".service")
 
-	if err := cfg.PreserveCustom(servicePath); err != nil {
+	err = cfg.PreserveCustom(servicePath)
+	if err != nil {
 		log.MustExit(fmt.Errorf("could not preserve existing service configuration: %w", err))
 	} else if len(cfg.Custom) > 0 {
 		log.Printf("Preserved %d custom configuration lines.\n", len(cfg.Custom))
@@ -183,6 +185,7 @@ func applyOverrides(cfg *ServiceConfig, cli *CLI) {
 
 	if cli.ConfigFile != "" {
 		cfg.ConfigFile = cli.ConfigFile
+
 		if cli.WritableConfig == nil {
 			cfg.WritableConfig = true
 		}
@@ -206,6 +209,10 @@ func applyOverrides(cfg *ServiceConfig, cli *CLI) {
 
 	if cli.SeparateLogDir != nil {
 		cfg.SeparateLogDir = *cli.SeparateLogDir
+	}
+
+	if cli.Journald != nil {
+		cfg.Journald = *cli.Journald
 	}
 
 	// Advanced security
@@ -347,11 +354,19 @@ func runInteractive(cfg *ServiceConfig) {
 	}
 
 	// Output section
-	cfg.SeparateLogDir = ask(
-		"Separate Logs",
-		"Organize logs into a 'logs' subdirectory.",
-		cfg.SeparateLogDir,
+	cfg.Journald = ask(
+		"Journald",
+		"Send output to the system journal instead of creating log files and logrotate rules.",
+		cfg.Journald,
 	)
+
+	if !cfg.Journald {
+		cfg.SeparateLogDir = ask(
+			"Separate Logs",
+			"Keep the log file in a root-owned 'logs' subdirectory. Existing log contents are preserved.",
+			cfg.SeparateLogDir,
+		)
+	}
 
 	// Resource limits
 	log.Println()
@@ -419,7 +434,12 @@ func dryRun(cfg *ServiceConfig, confDir string) {
 	log.Printf("  Devices:          %v\n", cfg.Devices)
 	log.Printf("  FullDevices:      %v\n", cfg.FullDevices)
 	log.Printf("  Subprocess:       %v\n", cfg.Subprocess)
-	log.Printf("  SeparateLogDir:   %v\n", cfg.SeparateLogDir)
+	log.Printf("  Journald:         %v\n", cfg.Journald)
+
+	if !cfg.Journald {
+		log.Printf("  SeparateLogDir:   %v\n", cfg.SeparateLogDir)
+	}
+
 	log.Println()
 	log.Println("Advanced Security:")
 	log.Printf("  LocalhostOnly:    %v\n", cfg.LocalhostOnly)
@@ -437,7 +457,11 @@ func dryRun(cfg *ServiceConfig, confDir string) {
 	log.Println("Would generate:")
 	log.Printf("  %s/%s.service\n", confDir, cfg.Name)
 	log.Printf("  %s/%s.conf\n", confDir, cfg.Name)
-	log.Printf("  %s/%s_logs.conf\n", confDir, cfg.Name)
+
+	if !cfg.Journald {
+		log.Printf("  %s/%s_logs.conf\n", confDir, cfg.Name)
+	}
+
 	log.Printf("  %s/setup.sh\n", confDir)
 	log.Printf("  %s/uninstall.sh\n", confDir)
 	log.Printf("  %s/svc.yml\n", confDir)
@@ -491,5 +515,24 @@ func writeConfigs(cfg *ServiceConfig, confDir, configPath, servicePath string) e
 		return err
 	}
 
-	return cfg.WriteTemplate(filepath.Join(confDir, "{name}_logs.conf"), LogrotateTmpl)
+	logrotatePath := filepath.Join(confDir, cfg.Name+"_logs.conf")
+
+	if cfg.Journald {
+		info, err = os.Lstat(logrotatePath)
+		if os.IsNotExist(err) {
+			return nil
+		}
+
+		if err != nil {
+			return err
+		}
+
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("refusing to remove non-regular logrotate config %s", logrotatePath)
+		}
+
+		return os.Remove(logrotatePath)
+	}
+
+	return cfg.WriteTemplate(logrotatePath, LogrotateTmpl)
 }

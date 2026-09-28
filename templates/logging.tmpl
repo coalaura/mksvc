@@ -1,0 +1,47 @@
+{{- define "logging" }}
+# The service must never be able to replace a pathname opened by systemd as root.
+log_dir="${path}{{ if .SeparateLogDir }}/logs{{ end }}"
+log_file="${log_dir}/${name}.log"
+{{- if .SeparateLogDir }}
+
+if [ -L "${log_dir}" ] || { [ -e "${log_dir}" ] && [ ! -d "${log_dir}" ]; }; then
+    echo "Refusing unsafe log directory: ${log_dir}" >&2
+    exit 1
+fi
+
+# Also migrates older service-owned log directories, without removing their contents.
+install -d -o root -g "${name}" -m 0750 "${log_dir}"
+{{- end }}
+
+check_log_file() {
+    if [ -L "$1" ] || { [ -e "$1" ] && [ ! -f "$1" ]; }; then
+        echo "Refusing unsafe log file: $1" >&2
+        exit 1
+    fi
+
+    if [ -e "$1" ] && [ "$(stat -c %h "$1")" -ne 1 ]; then
+        echo "Refusing hard-linked log file: $1" >&2
+        exit 1
+    fi
+}
+
+check_log_file "${log_file}"
+
+if [ ! -e "${log_file}" ]; then
+    (umask 0077; set -o noclobber; : > "${log_file}")
+fi
+
+chown "root:${name}" "${log_file}"
+chmod 0660 "${log_file}"
+
+# Rotation now runs as root; reject unsafe legacy archives before enabling it.
+for archive in "${log_file}".[0-9]*; do
+    if [ ! -e "${archive}" ] && [ ! -L "${archive}" ]; then
+        continue
+    fi
+
+    check_log_file "${archive}"
+    chown "root:${name}" "${archive}"
+    chmod 0640 "${archive}"
+done
+{{- end }}

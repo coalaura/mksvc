@@ -19,14 +19,27 @@ ExecStart={{ .Path }}/{{ .Name }}
 {{- if .EnvFile }}
 EnvironmentFile={{ .EnvFile }}{{ end }}
 
+{{ if .Journald -}}
+StandardOutput=journal
+StandardError=journal
+{{ else -}}
 StandardOutput=append:{{ .Path }}/{{ if .SeparateLogDir }}logs/{{ end }}{{ .Name }}.log
 StandardError=append:{{ .Path }}/{{ if .SeparateLogDir }}logs/{{ end }}{{ .Name }}.log
+{{ end -}}
 StandardInput=null
 
 # Filesystem Sandboxing
 ProtectSystem=strict
 ReadOnlyPaths={{ .Path }}
-ReadWritePaths={{ .Path }}/{{ if .SeparateLogDir }}logs{{ else }}{{ .Name }}.log{{ end }}{{ if .WritableFiles }} {{ .Path }}/data{{ end }}{{ if .WritableConfig }} {{ .Path }}/{{ .ConfigFile }}{{ end }}
+{{- if not .Journald }}
+ReadWritePaths={{ .Path }}/{{ if .SeparateLogDir }}logs/{{ end }}{{ .Name }}.log
+{{- end }}
+{{- if .WritableFiles }}
+ReadWritePaths={{ .Path }}/data
+{{- end }}
+{{- if .WritableConfig }}
+ReadWritePaths={{ .Path }}/{{ .ConfigFile }}
+{{- end }}
 ProtectHome=yes
 PrivateTmp=yes
 PrivateMounts=yes
