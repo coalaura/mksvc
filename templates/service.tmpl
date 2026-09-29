@@ -102,7 +102,6 @@ CapabilityBoundingSet=
 SystemCallErrorNumber=EPERM
 SystemCallFilter=~@clock @cpu-emulation @debug @module @mount @obsolete @reboot @swap @resources{{ if not .Devices }} @raw-io{{ end }} @privileged @keyring @pkey @memlock{{ if not .Memfd }} memfd_create{{ end }}
 {{- if not .Subprocess }}
-# Best-effort external-tool restriction; process creation and threads are unaffected.
 NoExecPaths=-/bin -/usr/bin -/sbin -/usr/sbin -/usr/local/bin
 ExecPaths={{ .Path }}/{{ .Name }}{{ end }}
 {{- if or .CPUQuota .MemoryMax }}
