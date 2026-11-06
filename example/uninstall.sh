@@ -13,7 +13,8 @@ generated_sysusers="$(dirname "${BASH_SOURCE[0]}")/${name}.conf"
 installed_sysusers="/etc/sysusers.d/${name}.conf"
 owns_identity=false
 
-if [ ! -L "${installed_sysusers}" ] && [ -f "${installed_sysusers}" ] && [ -f "${generated_sysusers}" ] && \
+if { [ ! -L "${installed_sysusers}" ] || [ "$(readlink "${installed_sysusers}")" = "${path}/conf/${name}.conf" ]; } && \
+    [ -f "${installed_sysusers}" ] && [ -f "${generated_sysusers}" ] && \
     cmp -s "${generated_sysusers}" "${installed_sysusers}"; then
     passwd_entry=$(getent passwd "${name}" || true)
     group_entry=$(getent group "${name}" || true)
@@ -43,7 +44,7 @@ else
     echo "Installed sysusers policy does not match; leaving it unchanged."
 fi
 
-if [ -f "/etc/logrotate.d/${name}" ]; then
+if [ -f "/etc/logrotate.d/${name}" ] || [ -L "/etc/logrotate.d/${name}" ]; then
     echo "Removing logrotate config..."
     rm -f "/etc/logrotate.d/${name}"
 fi

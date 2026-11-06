@@ -30,7 +30,7 @@ mksvc my-app /opt/my-app -i
 sudo bash conf/setup.sh
 ```
 
-Setup makes the deployed executable and generated configuration root-owned. Run future regeneration as root from the same service directory, then rerun `conf/setup.sh`.
+Setup makes the deployed executable and generated configuration root-owned. The systemd unit, sysusers policy and logrotate rule are symlinked from `/etc` to their source files in `conf/`, which are owned by `root:root` with mode `0644`. Run future regeneration as root from the same service directory, then rerun `conf/setup.sh`.
 
 ### Generated Artifacts
 
@@ -57,7 +57,7 @@ sudo bash conf/setup.sh
 journalctl -u my-app.service
 ```
 
-Journald mode creates no log files or logrotate configuration and removes a stale generated `conf/<name>_logs.conf`. Setup removes an installed rotation rule bearing mksvc's ownership header, while leaving existing logs intact. If switching directly from an older release with an unmarked rotation rule, review and remove `/etc/logrotate.d/<name>` before running setup; setup refuses to remove an unrecognized rule automatically.
+Journald mode creates no log files or logrotate configuration and removes a stale generated `conf/<name>_logs.conf`. Setup removes an installed rotation symlink pointing to that generated file (even if dangling), or a regular rule bearing mksvc's ownership header, while leaving existing logs intact. If switching directly from an older release with an unmarked regular rotation rule, review and remove `/etc/logrotate.d/<name>` before running setup; setup refuses to remove an unrecognized rule automatically.
 
 ## Customization & Persistence
 

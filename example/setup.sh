@@ -13,6 +13,11 @@ conf_dir="${path}/conf"
 
 sysusers_file="/etc/sysusers.d/${name}.conf"
 
+if [ -L "${conf_dir}" ] || [ ! -d "${conf_dir}" ]; then
+    echo "Configuration path must be an existing, real directory: ${conf_dir}" >&2
+    exit 1
+fi
+
 if [ -L "${path}" ] || [ ! -d "${path}" ]; then
     echo "Service path must be an existing, real directory: ${path}" >&2
     exit 1
@@ -86,15 +91,26 @@ fi
 chown root:root "${path}"
 chmod 0755 "${path}"
 
-echo "Installing sysusers config..."
+echo "Setting permissions..."
+
+if [[ -f "${conf_dir}/svc.yml" ]]; then
+    chown root:root "${conf_dir}/svc.yml"
+    chmod 0700 "${conf_dir}/svc.yml"
+fi
+
+chown root:root "${conf_dir}" "${path}/${name}" "${conf_dir}/${name}.conf" "${conf_dir}/${name}.service" "${conf_dir}/${name}_logs.conf" "${conf_dir}/setup.sh" "${conf_dir}/uninstall.sh"
+chmod 0755 "${conf_dir}"
+chmod 0755 "${path}/${name}"
+chmod 0644 "${conf_dir}/${name}.conf" "${conf_dir}/${name}.service" "${conf_dir}/${name}_logs.conf"
+chmod 0700 "${conf_dir}/setup.sh" "${conf_dir}/uninstall.sh"
+
+echo "Linking sysusers config..."
 
 if [ -e "${sysusers_file}" ] || [ -L "${sysusers_file}" ]; then
-    if [ -L "${sysusers_file}" ] || [ ! -f "${sysusers_file}" ] || ! cmp -s "${conf_dir}/${name}.conf" "${sysusers_file}"; then
+    if { [ -L "${sysusers_file}" ] && [ "$(readlink "${sysusers_file}")" != "${conf_dir}/${name}.conf" ]; } || [ ! -f "${sysusers_file}" ] || ! cmp -s "${conf_dir}/${name}.conf" "${sysusers_file}"; then
         echo "Refusing to replace conflicting sysusers policy: ${sysusers_file}" >&2
         exit 1
     fi
-
-    systemd-sysusers "${sysusers_file}"
 else
     if getent passwd "${name}" >/dev/null || getent group "${name}" >/dev/null; then
         passwd_entry=$(getent passwd "${name}" || true)
@@ -110,10 +126,10 @@ else
 
         echo "Adopting service identity created by an older release..."
     fi
-
-    install -o root -g root -m 0644 "${conf_dir}/${name}.conf" "${sysusers_file}"
-    systemd-sysusers "${sysusers_file}"
 fi
+
+ln -sfnT "${conf_dir}/${name}.conf" "${sysusers_file}"
+systemd-sysusers "${sysusers_file}"
 
 passwd_entry=$(getent passwd "${name}" || true)
 group_entry=$(getent group "${name}" || true)
@@ -126,23 +142,9 @@ if [ -z "${passwd_entry}" ] || [ -z "${group_entry}" ] || [ "${user_home}" != "$
     exit 1
 fi
 
-echo "Installing unit..."
+echo "Linking unit..."
 
-install -o root -g root -m 0644 "${conf_dir}/${name}.service" "/etc/systemd/system/${name}.service"
-
-echo "Setting permissions..."
-
-if [[ -f "${conf_dir}/svc.yml" ]]; then
-    chown root:root "${conf_dir}/svc.yml"
-    chmod 0700 "${conf_dir}/svc.yml"
-fi
-
-chown root:root "${path}" "${conf_dir}" "${path}/${name}" "${conf_dir}/${name}.conf" "${conf_dir}/${name}.service" "${conf_dir}/${name}_logs.conf" "${conf_dir}/setup.sh" "${conf_dir}/uninstall.sh"
-chmod 0755 "${path}"
-chmod 0755 "${conf_dir}"
-chmod 0755 "${path}/${name}"
-chmod 0644 "${conf_dir}/${name}.conf" "${conf_dir}/${name}.service" "${conf_dir}/${name}_logs.conf"
-chmod 0700 "${conf_dir}/setup.sh" "${conf_dir}/uninstall.sh"
+ln -sfnT "${conf_dir}/${name}.service" "/etc/systemd/system/${name}.service"
 
 # The service must never be able to replace a pathname opened by systemd as root.
 log_dir="${path}/logs"
@@ -188,9 +190,9 @@ for archive in "${log_file}".[0-9]*; do
     chmod 0640 "${archive}"
 done
 
-echo "Installing logrotate config for the host's existing rotation schedule..."
+echo "Linking logrotate config for the host's existing rotation schedule..."
 
-install -o root -g root -m 0644 "${conf_dir}/${name}_logs.conf" "/etc/logrotate.d/${name}"
+ln -sfnT "${conf_dir}/${name}_logs.conf" "/etc/logrotate.d/${name}"
 
 echo "Reloading daemon..."
 
