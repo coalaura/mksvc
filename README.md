@@ -20,7 +20,7 @@ The shell installer supports Linux and macOS on amd64/arm64, using either `sha25
 
 ## Usage
 
-Run `mksvc` in the deployed service root. The path must be below `/opt`, `/srv`, `/var/lib` or `/usr/local/lib` and the executable must have the same name as the service.
+Run `mksvc` in the deployed service root. A dedicated directory under `/opt`, `/srv`, `/var/lib` or `/usr/local/lib` is recommended; other canonical paths such as `/var/my-app` are supported. The executable must have the same name as the service.
 
 ```bash
 # Generate configs interactively
@@ -30,7 +30,11 @@ mksvc my-app /opt/my-app -i
 sudo bash conf/setup.sh
 ```
 
-Setup makes the deployed executable and generated configuration root-owned. The systemd unit, sysusers policy and optional logrotate rule are symlinked from `/etc` to their source files in `conf/`, which are owned by `root:root` with mode `0644`. Run future regeneration as root from the same service directory, then rerun `conf/setup.sh`.
+Stage the executable and configuration as root. The service root, `conf/`, their ancestors and trusted input files must already be root-owned and not writable by group or others. The service must be able to traverse the ancestors. Setup sets the final permissions and symlinks the systemd unit, sysusers policy and optional logrotate rule from `/etc` to their `root:root` sources in `conf/` (mode `0644`). Regenerate as root from the same directory, then rerun `conf/setup.sh`.
+
+Both scripts check for conflicts before changing permissions, accounts, links or the running service. Setup repairs permissions and missing managed resources, starts an inactive unit, and restarts an active unit when its executable, unit file or configured environment file has changed. Repeating uninstall leaves the application files in place. A failure while applying changes (for example, a service that fails to start) is reported separately; the scripts are not transactions.
+
+Keep `conf/.mksvc-install` with the deployment. It records the installed UID/GID and last applied configuration. An existing account is accepted without a record only for a matching older linked installation. Uninstall preserves such legacy accounts; it deletes accounts recorded as created by setup. Retained application data can still carry the deleted numeric UID/GID; secure it before those IDs are reused.
 
 ### Generated Artifacts
 
@@ -53,7 +57,7 @@ sudo bash conf/setup.sh
 journalctl -u my-app.service
 ```
 
-Journald mode creates no log files or logrotate configuration and removes a stale generated `conf/<name>_logs.conf`. Setup removes an installed rotation symlink pointing to that generated file (even if dangling), or a regular rule bearing mksvc's ownership header, while leaving existing logs intact. If switching directly from an older release with an unmarked regular rotation rule, review and remove `/etc/logrotate.d/<name>` before running setup; setup refuses to remove an unrecognized rule automatically.
+Journald mode creates no log files or logrotate configuration and removes a stale generated `conf/<name>_logs.conf`. Setup removes an installed rotation symlink pointing to that file (even if dangling), leaving existing logs intact. Review and remove any old regular rule at `/etc/logrotate.d/<name>` manually; setup and uninstall manage only links to this deployment.
 
 With file logging, stdout and stderr append to `logs/<name>.log` or `<name>.log` with `--no-log-dir`. Setup preserves existing log contents. The log directory is root-owned and cannot be modified by the service; the active log file is owned by `root:<service>` with mode `0660`, allowing the service to write its contents without replacing its pathname. Only that file, not the entire log directory, is writable inside the sandbox. Applications that create additional log files should use stdout/stderr instead.
 
@@ -74,14 +78,14 @@ Restricted device access (`--devices`, without `--full-devices`) retains custom 
 
 Use `--cpu-quota=`, `--memory-max=` or `--env-file=` to clear saved settings; omitting the flag keeps the previous value. Interactive prompts use Enter to keep a value and `-` to clear it. Positive fractional CPU quotas such as `0.5%` are supported. Environment files should be root-owned with mode `0600`: the system manager reads them before launching the service, so service-group readability is unnecessary.
 
-Generation renders all outputs before publishing, serializes writers with an OS-held `conf/.mksvc.lock` and snapshots previous files in a private recovery journal. Ordinary publication failures roll back; after interruption, the next writing run restores the previous generation before loading settings. Each file uses same-directory native replacement; Windows never deletes the old file as a rename fallback. The set is recoverable rather than an atomic directory swap: do not run setup concurrently with generation. Leave the lock file in place; the OS releases its lock automatically. A remaining `.mksvc-recovery.json` is needed for recovery and can contain previous environment values. Dry-run refuses an outstanding recovery journal. Durability ultimately depends on the host filesystem; Unix directory changes are synced and Windows replacements request write-through.
+Run only one generation, setup or uninstall at a time per deployment. Generation uses no lock file. It renders all outputs before publishing and snapshots previous files in a private recovery journal. Ordinary publication failures roll back; after interruption, the next writing run restores the previous generation before loading settings. Each file uses same-directory native replacement; the set is recoverable rather than an atomic directory swap. A remaining `.mksvc-recovery.json` is needed for recovery and can contain previous environment values. Dry-run refuses an outstanding recovery journal.
 
 ### Example
 If you manually add this to `conf/my-app.service`:
 
 ```ini
 [Service]
-Environment=API_KEY=12345
+Environment=LOG_LEVEL=info
 TimeoutStartSec=600
 ```
 
@@ -91,7 +95,7 @@ Running `mksvc` again will update the security sandbox settings but keep your `E
 
 * **Filesystem**: Root is read-only (`ProtectSystem=strict`). Working directory is read-only by default.
 * **Process**: No new privileges, restricted namespaces. Common executable directories are non-executable unless `--subprocess` is enabled, but remain readable. This is best-effort external-tool blocking, not a ban on child processes: threads, forks, self-reexecution and executables elsewhere remain possible.
-* **Network**: Offline/Airgapped by default (`PrivateNetwork=yes`). Optional "Server Mode" for binding ports.
+* **Network**: IP networking is isolated by default (`PrivateNetwork=yes`). Accessible filesystem Unix sockets can still reach host services. Optional "Server Mode" allows binding network ports.
 * **Kernel**: Logs, modules and tunables are protected. `/dev` is private.
 * **Memory**: `MemoryDenyWriteExecute` enabled by default (`--exec-memory` opts out). `memfd_create` is denied independently unless `--memfd` is enabled for compatible IPC/JIT workloads; that exception reopens a documented executable-memory bypass. Some runtimes need both options.
 * **Executable files**: Writable data/config/log/runtime locations, `/tmp`, `/var/tmp` and `/dev/shm` are non-executable even with `--subprocess`. Applications that load executable files or native libraries from those locations need a different deployment layout. Interpreters can still read scripts; this does not prohibit all code execution.
@@ -100,6 +104,6 @@ Running `mksvc` again will update the security sandbox settings but keep your `E
 
 ### Example security analysis
 
-The included `example/example.service` (default mksvc options) scores **0.5 (SAFE)** with `systemd-analyze security --offline=1`:
+The report below shows **0.5 (SAFE)** for the included `example/example.service`, which uses file logging. New services use journald by default. Scores from `systemd-analyze security --offline=1` depend on the systemd version and profile.
 
 ![systemd-analyze security report](.github/analyze.png)

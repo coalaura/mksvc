@@ -35,10 +35,13 @@ var (
 	//go:embed templates/logging.tmpl
 	loggingStr string
 
+	//go:embed templates/lifecycle.tmpl
+	lifecycleStr string
+
 	ServiceTmpl   = template.Must(template.New("service").Parse(serviceStr))
 	UserTmpl      = template.Must(template.New("user").Parse(userStr))
-	SetupTmpl     = template.Must(template.New("setup").Parse(setupStr + loggingStr))
-	UninstallTmpl = template.Must(template.New("uninstall").Parse(uninstallStr))
+	SetupTmpl     = template.Must(template.New("setup").Parse(setupStr + lifecycleStr + loggingStr))
+	UninstallTmpl = template.Must(template.New("uninstall").Parse(uninstallStr + lifecycleStr))
 	LogrotateTmpl = template.Must(template.New("logrotate").Parse(logrotateStr))
 
 	managedKeys = initManagedKeys()

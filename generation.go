@@ -80,52 +80,26 @@ func (cfg *ServiceConfig) renderFiles(configName, serviceName string) ([]generat
 	return files, nil
 }
 
-func beginGeneration(directory string) (*os.File, error) {
+func beginGeneration(directory string) error {
 	info, err := os.Lstat(directory)
 	if os.IsNotExist(err) {
 		err = os.Mkdir(directory, 0755)
 		if err != nil && !os.IsExist(err) {
-			return nil, err
+			return err
 		}
 
 		info, err = os.Lstat(directory)
 	}
 
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return nil, fmt.Errorf("%s must be a real directory", directory)
+		return fmt.Errorf("%s must be a real directory", directory)
 	}
 
-	lockPath := filepath.Join(directory, ".mksvc.lock")
-
-	err = checkRegularTarget(lockPath)
-	if err != nil {
-		return nil, err
-	}
-
-	lock, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0600)
-	if err != nil {
-		return nil, err
-	}
-
-	err = lockFile(lock)
-	if err != nil {
-		lock.Close()
-
-		return nil, fmt.Errorf("cannot lock generation (another writer may be active): %w", err)
-	}
-
-	err = recoverGeneration(directory)
-	if err != nil {
-		lock.Close()
-
-		return nil, err
-	}
-
-	return lock, nil
+	return recoverGeneration(directory)
 }
 
 func commitGeneration(directory string, files []generatedFile, write func(string, []byte, os.FileMode) error) error {

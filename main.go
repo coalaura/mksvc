@@ -78,10 +78,8 @@ func main() {
 	configPath := filepath.Join(confDir, "svc.yml")
 
 	if !cli.DryRun {
-		lock, err := beginGeneration(confDir)
+		err := beginGeneration(confDir)
 		log.MustExit(err)
-
-		defer lock.Close()
 	} else {
 		_, err := os.Lstat(filepath.Join(confDir, recoveryFilename))
 		if err == nil {
@@ -267,7 +265,7 @@ func runInteractive(cfg *ServiceConfig) {
 	// Network section
 	cfg.Network = ask(
 		"Network Access",
-		"Required for internet/intranet. Disabling creates an airgapped namespace.",
+		"Required for internet/intranet. Disabling isolates IP networking; accessible filesystem Unix sockets remain reachable.",
 		cfg.Network,
 	)
 

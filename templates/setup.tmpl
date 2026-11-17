@@ -1,225 +1,203 @@
 #!/bin/bash
+action=setup
+{{ template "lifecycle" . }}
 
-set -euo pipefail
+binary="${path}/${name}"
+policy_files=("$policy" "$unit_file"{{ if not .Journald }} "${conf_dir}/${name}_logs.conf"{{ end }})
+private_files=("${conf_dir}/setup.sh" "${conf_dir}/uninstall.sh")
 
-if [ "${EUID}" -ne 0 ]; then
-    echo "Run this script as root." >&2
-    exit 1
+if exists "${conf_dir}/svc.yml"; then
+	private_files+=("${conf_dir}/svc.yml")
 fi
 
-name="{{ .Name }}"
-path="{{ .Path }}"
-conf_dir="${path}/conf"
-
-sysusers_file="/etc/sysusers.d/${name}.conf"
-
-if [ -L "${conf_dir}" ] || [ ! -d "${conf_dir}" ]; then
-    echo "Configuration path must be an existing, real directory: ${conf_dir}" >&2
-    exit 1
-fi
-
-if [ -L "${path}" ] || [ ! -d "${path}" ]; then
-    echo "Service path must be an existing, real directory: ${path}" >&2
-    exit 1
-fi
-
-script_root=$(realpath "$(dirname "${BASH_SOURCE[0]}")/..")
-service_root=$(realpath "${path}")
-
-if [ "${script_root}" != "${service_root}" ]; then
-    echo "Run the setup script from ${path}/conf." >&2
-    exit 1
-fi
-
-{{- if not .Journald }}
-
-# A writable ancestor would let another user replace the root-owned log hierarchy.
-if [ "${service_root}" != "${path}" ]; then
-    echo "File logging requires a canonical service path without symlinks: ${path}" >&2
-    exit 1
-fi
-
-parent=$(dirname "${path}")
-
-while true; do
-    read -r owner mode < <(stat -c '%u %a' "${parent}")
-
-    if [ "${owner}" -ne 0 ] || (( (8#${mode} & 0022) != 0 )); then
-        echo "File logging requires root-owned ancestors without group/other write access: ${parent}" >&2
-        exit 1
-    fi
-
-    if [ "${parent}" = / ]; then
-        break
-    fi
-
-    parent=$(dirname "${parent}")
-done
-{{- end }}
-
-for file in "${conf_dir}/${name}.conf" "${conf_dir}/${name}.service"{{ if not .Journald }} "${conf_dir}/${name}_logs.conf"{{ end }}; do
-    if [ -L "${file}" ] || [ ! -f "${file}" ]; then
-        echo "Missing or unsafe generated file: ${file}" >&2
-        exit 1
-    fi
+for file in "$binary" "${policy_files[@]}" "${private_files[@]}"; do
+	check_regular_file "$file"
+	check_trusted_path "$file"
 done
 
-{{- if not .Journald }}
-
-# Rotation is required for file logging, before stopping the existing service.
-if ! command -v logrotate >/dev/null 2>&1; then
-    echo "File logging requires logrotate." >&2
-    exit 1
+# Do not ask sysusers to interpret a stale policy for a different deployment.
+expected_policy='u {{ .Name }} - "{{ .Label }} Service" {{ .Path }} /sbin/nologin'
+actual_policy=$(awk 'NF && $1 !~ /^#/ {print}' "$policy")
+if [[ $actual_policy != "$expected_policy" ]]; then
+	refuse "sysusers policy does not match this deployment: ${policy}"
 fi
 
-(
-    rotation_check=$(mktemp)
-    trap 'rm -f -- "${rotation_check}"' EXIT
-    install -o root -g root -m 0600 "${conf_dir}/${name}_logs.conf" "${rotation_check}"
-    logrotate --debug "${rotation_check}"
-)
-{{- end }}
+check_directory_tree /etc/systemd/system
+check_directory_tree /etc
 
-if [ -L "${path}/${name}" ] || [ ! -f "${path}/${name}" ]; then
-    echo "Missing or unsafe service executable: ${path}/${name}" >&2
-    exit 1
+parent=$(dirname -- "$path")
+while [[ $parent != / ]]; do
+	metadata=$(stat -c '%g %a' -- "$parent")
+	read -r parent_gid mode <<< "$metadata"
+
+	if [[ $parent_gid == "$gid" ]]; then
+		traverse_bit=0010
+	else
+		traverse_bit=0001
+	fi
+
+	if (( (8#$mode & traverse_bit) == 0 )); then
+		refuse "service cannot traverse ${parent}"
+	fi
+
+	parent=$(dirname -- "$parent")
+done
+
+for vendor_dir in /run/sysusers.d /usr/local/lib/sysusers.d /usr/lib/sysusers.d; do
+	if exists "${vendor_dir}/${name}.conf"; then
+		refuse "conflicting sysusers policy: ${vendor_dir}/${name}.conf"
+	fi
+done
+
+if [[ -z $uid ]] && ! command -v systemd-sysusers >/dev/null; then
+	refuse 'missing systemd-sysusers'
 fi
+{{- if .EnvFile }}
 
-echo "Stopping existing service..."
-
-load_state=$(systemctl show --property=LoadState --value "${name}.service")
-
-if [ "${load_state}" != not-found ]; then
-    systemctl stop "${name}.service"
-fi
-
-# Lock the parent before migrating any service-owned log directory.
-chown root:root "${path}"
-chmod 0755 "${path}"
-
-echo "Setting permissions..."
-
-if [[ -f "${conf_dir}/svc.yml" ]]; then
-    chown root:root "${conf_dir}/svc.yml"
-    chmod 0700 "${conf_dir}/svc.yml"
-fi
-
-chown root:root "${conf_dir}" "${path}/${name}" "${conf_dir}/${name}.conf" "${conf_dir}/${name}.service"{{ if not .Journald }} "${conf_dir}/${name}_logs.conf"{{ end }} "${conf_dir}/setup.sh" "${conf_dir}/uninstall.sh"
-chmod 0755 "${conf_dir}"
-chmod 0755 "${path}/${name}"
-chmod 0644 "${conf_dir}/${name}.conf" "${conf_dir}/${name}.service"{{ if not .Journald }} "${conf_dir}/${name}_logs.conf"{{ end }}
-chmod 0700 "${conf_dir}/setup.sh" "${conf_dir}/uninstall.sh"
-
-echo "Linking sysusers config..."
-
-if [ -e "${sysusers_file}" ] || [ -L "${sysusers_file}" ]; then
-    if { [ -L "${sysusers_file}" ] && [ "$(readlink "${sysusers_file}")" != "${conf_dir}/${name}.conf" ]; } || [ ! -f "${sysusers_file}" ] || ! cmp -s "${conf_dir}/${name}.conf" "${sysusers_file}"; then
-        echo "Refusing to replace conflicting sysusers policy: ${sysusers_file}" >&2
-        exit 1
-    fi
-else
-    if getent passwd "${name}" >/dev/null || getent group "${name}" >/dev/null; then
-        passwd_entry=$(getent passwd "${name}" || true)
-        group_entry=$(getent group "${name}" || true)
-        user_home=$(printf '%s' "${passwd_entry}" | cut -d: -f6)
-        user_shell=$(printf '%s' "${passwd_entry}" | cut -d: -f7)
-
-        if [ -z "${passwd_entry}" ] || [ -z "${group_entry}" ] || [ "${user_home}" != "${path}" ] || \
-            { [ "${user_shell}" != "/sbin/nologin" ] && [ "${user_shell}" != "/usr/sbin/nologin" ]; }; then
-            echo "Refusing to reuse existing user or group: ${name}" >&2
-            exit 1
-        fi
-
-        echo "Adopting service identity created by an older release..."
-    fi
-fi
-
-ln -sfnT "${conf_dir}/${name}.conf" "${sysusers_file}"
-systemd-sysusers "${sysusers_file}"
-
-passwd_entry=$(getent passwd "${name}" || true)
-group_entry=$(getent group "${name}" || true)
-user_home=$(printf '%s' "${passwd_entry}" | cut -d: -f6)
-user_shell=$(printf '%s' "${passwd_entry}" | cut -d: -f7)
-
-if [ -z "${passwd_entry}" ] || [ -z "${group_entry}" ] || [ "${user_home}" != "${path}" ] || \
-    { [ "${user_shell}" != "/sbin/nologin" ] && [ "${user_shell}" != "/usr/sbin/nologin" ]; }; then
-    echo "Service identity does not match generated policy: ${name}" >&2
-    exit 1
-fi
-
-echo "Linking unit..."
-
-ln -sfnT "${conf_dir}/${name}.service" "/etc/systemd/system/${name}.service"
-
-{{- if .Devices }}
-# Hardware access normally also needs a udev rule assigning the device to this service user.
-# Example: /etc/udev/rules.d/99-{{ .Name }}.rules
-# SUBSYSTEM=="usb", ATTRS{idVendor}=="XXXX", OWNER="{{ .Name }}"
-{{- end }}
-
-{{- if not .Journald }}
-{{ template "logging" . }}
-
-echo "Linking logrotate config for the host's existing rotation schedule..."
-
-ln -sfnT "${conf_dir}/${name}_logs.conf" "/etc/logrotate.d/${name}"
-{{- else }}
-
-rotation_file="/etc/logrotate.d/${name}"
-
-if [ -e "${rotation_file}" ] || [ -L "${rotation_file}" ]; then
-    if [ -L "${rotation_file}" ]; then
-        if [ "$(readlink "${rotation_file}")" != "${conf_dir}/${name}_logs.conf" ]; then
-            echo "Refusing to remove unrecognized logrotate link: ${rotation_file}" >&2
-            exit 1
-        fi
-    elif [ ! -f "${rotation_file}" ] || ! IFS= read -r header < "${rotation_file}" || [ "${header}" != "# Generated by mksvc for ${name}" ]; then
-        echo "Remove the unrecognized legacy logrotate rule before using journald: ${rotation_file}" >&2
-        exit 1
-    fi
-
-    rm -- "${rotation_file}"
-fi
+env_file="{{ .EnvFile }}"
+check_regular_file "$env_file"
+check_directory_tree "$(dirname -- "$env_file")"
+check_trusted_path "$env_file"
 {{- end }}
 {{- if .WritableFiles }}
 
-# A data-directory symlink must not undo log-directory ownership established above.
-if [ -L "${path}/data" ] || { [ -e "${path}/data" ] && [ ! -d "${path}/data" ]; }; then
-    echo "Refusing unsafe data directory: ${path}/data" >&2
-    exit 1
+data_dir="${path}/data"
+if exists "$data_dir" && [[ ! -d $data_dir || -L $data_dir ]]; then
+	refuse "unsafe data directory: ${data_dir}"
 fi
-
-install -d -o "${name}" -g "${name}" -m 0750 "${path}/data"
 {{- end }}
 {{- if .WritableConfig }}
 
 config_file="${path}/{{ .ConfigFile }}"
-if [ -L "${config_file}" ] || { [ -e "${config_file}" ] && [ ! -f "${config_file}" ]; }; then
-    echo "Refusing unsafe writable config file: ${config_file}" >&2
-    exit 1
+if exists "$config_file"; then
+	check_regular_file "$config_file"
+fi
+{{- end }}
+{{- if not .Journald }}
+{{ template "check_logging" . }}
+{{- end }}
+
+# Hash contents, not timestamps: regeneration and permission-only repairs do
+# not by themselves require restarting an otherwise healthy service.
+fingerprint=$(sha256sum -- "$binary" "$unit_file"{{ if .EnvFile }} "$env_file"{{ end }} | sha256sum)
+fingerprint=${fingerprint%% *}
+unit_digest=$(sha256sum -- "$unit_file")
+unit_digest=${unit_digest%% *}
+
+set_permissions() {
+	local target=$1 wanted_owner=$2 wanted_mode=$3 metadata owner mode
+
+	metadata=$(stat -c '%u:%g %a' -- "$target")
+	read -r owner mode <<< "$metadata"
+
+	if [[ $owner != "$wanted_owner" ]]; then
+		chown -- "$wanted_owner" "$target"
+		mode='' # chown can clear mode bits.
+	fi
+
+	if [[ $mode != "$wanted_mode" ]]; then
+		chmod -- "=${wanted_mode}" "$target"
+	fi
+}
+{{- if or .WritableConfig (not .Journald) }}
+
+create_empty_file() (
+	set -o noclobber
+	: > "$1"
+)
+{{- end }}
+
+phase='setup (changes may already have been applied)'
+restore_mounts=no
+if [[ $runtime_wanted == yes && ! -d $runtime_dir ]]; then
+	restore_mounts=yes
 fi
 
-if [ -e "${config_file}" ] && [ "$(stat -c %h "${config_file}")" -ne 1 ]; then
-    echo "Refusing hard-linked writable config file: ${config_file}" >&2
-    exit 1
+set_permissions "$path" 0:0 755
+set_permissions "$conf_dir" 0:0 755
+set_permissions "$binary" 0:0 755
+
+for file in "${private_files[@]}"; do
+	set_permissions "$file" 0:0 700
+done
+
+for file in "${policy_files[@]}"; do
+	set_permissions "$file" 0:0 644
+done
+
+if [[ ! -d /etc/sysusers.d ]]; then
+	install -d -m 755 /etc/sysusers.d
 fi
 
-if [ ! -e "${config_file}" ]; then
-    install -o "${name}" -g "${name}" -m 0600 /dev/null "${config_file}"
-else
-    chown "${name}:${name}" "${config_file}"
-    chmod 0600 "${config_file}"
+if [[ ! -L $policy_link ]]; then
+	ln -sT -- "$policy" "$policy_link"
+fi
+
+if [[ -z $uid ]]; then
+	systemd-sysusers "$policy_link"
+	read_identity
+	if [[ -z $uid || -z $gid ]]; then
+		refuse 'sysusers did not create the expected identity'
+	fi
+
+	origin=created
+fi
+
+if [[ ! -f $record ]]; then
+	save_record pending
+fi
+
+set_permissions "$record" 0:0 600
+{{- if .WritableFiles }}
+
+if [[ ! -d $data_dir ]]; then
+	mkdir -- "$data_dir"
+	restore_mounts=yes
+fi
+
+set_permissions "$data_dir" "${uid}:${gid}" 750
+{{- end }}
+{{- if .WritableConfig }}
+
+if [[ ! -f $config_file ]]; then
+	create_empty_file "$config_file"
+	restore_mounts=yes
+fi
+
+set_permissions "$config_file" "${uid}:${gid}" 600
+{{- end }}
+{{- if not .Journald }}
+{{ template "apply_logging" . }}
+{{- else }}
+
+if [[ -L $rotation_link ]]; then
+	rm -- "$rotation_link"
 fi
 {{- end }}
 
-echo "Reloading daemon..."
+if [[ ! -L $unit_link ]]; then
+	ln -sT -- "$unit_file" "$unit_link"
+	needs_reload=yes
+fi
 
-systemctl daemon-reload
-systemctl enable "${name}"
+if [[ $needs_reload == yes || $load_state == not-found || $applied_unit != "$unit_digest" ]]; then
+	systemctl daemon-reload
+fi
+{{- if or (not .HasInstallSection) .InstallCustom }}
 
-echo "Setup complete, starting service..."
+if [[ $enabled != enabled || $applied_unit != "$unit_digest" ]]; then
+	systemctl enable "$unit_file"
+fi
+{{- end }}
 
-systemctl restart "${name}"
+if [[ $active != active ]]; then
+	systemctl start "$unit"
+elif [[ $applied != "$fingerprint" || $restore_mounts == yes ]]; then
+	systemctl restart "$unit"
+fi
 
-echo "Done."
+if [[ $applied != "$fingerprint" || $saved_runtime != "$runtime_wanted" ]]; then
+	save_record "$fingerprint" "$unit_digest"
+fi
+
+echo "Setup complete: ${unit}"

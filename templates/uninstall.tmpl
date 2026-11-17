@@ -1,74 +1,74 @@
 #!/bin/bash
+action=uninstall
+{{ template "lifecycle" . }}
 
-set -euo pipefail
+for source in "$unit_file" "$policy" "${conf_dir}/${name}_logs.conf"; do
+	if exists "$source"; then
+		check_regular_file "$source"
+		check_trusted_path "$source"
+	fi
+done
 
-if [ "${EUID}" -ne 0 ]; then
-    echo "Run this script as root." >&2
-    exit 1
+if [[ $origin == created ]]; then
+	if [[ -n $uid ]]; then
+		if ! command -v userdel >/dev/null; then
+			refuse 'missing userdel'
+		fi
+
+		if [[ $(getent -s files passwd "$name") != "$(getent passwd "$name")" ]]; then
+			refuse "not a local user: ${name}"
+		fi
+	fi
+
+	if [[ -n $gid ]]; then
+		if ! command -v groupdel >/dev/null; then
+			refuse 'missing groupdel'
+		fi
+
+		if [[ $(getent -s files group "$name") != "$(getent group "$name")" ]]; then
+			refuse "not a local group: ${name}"
+		fi
+	fi
 fi
 
-name="{{ .Name }}"
-path="{{ .Path }}"
-generated_sysusers="$(dirname "${BASH_SOURCE[0]}")/${name}.conf"
-installed_sysusers="/etc/sysusers.d/${name}.conf"
-owns_identity=false
+phase='uninstall (changes may already have been applied)'
 
-if { [ ! -L "${installed_sysusers}" ] || [ "$(readlink "${installed_sysusers}")" = "${path}/conf/${name}.conf" ]; } && \
-    [ -f "${installed_sysusers}" ] && [ -f "${generated_sysusers}" ] && \
-    cmp -s "${generated_sysusers}" "${installed_sysusers}"; then
-    passwd_entry=$(getent passwd "${name}" || true)
-    group_entry=$(getent group "${name}" || true)
-    user_home=$(printf '%s' "${passwd_entry}" | cut -d: -f6)
-    user_shell=$(printf '%s' "${passwd_entry}" | cut -d: -f7)
-
-    if [ -n "${passwd_entry}" ] && [ -n "${group_entry}" ] && [ "${user_home}" = "${path}" ] && \
-        { [ "${user_shell}" = "/sbin/nologin" ] || [ "${user_shell}" = "/usr/sbin/nologin" ]; }; then
-        owns_identity=true
-    fi
+if [[ $origin == legacy && ! -f $record ]]; then
+	save_record pending
 fi
 
-echo "Stopping service..."
-systemctl stop "${name}" 2>/dev/null || true
-
-echo "Disabling service..."
-systemctl disable "${name}" 2>/dev/null || true
-
-echo "Removing unit file..."
-rm -f "/etc/systemd/system/${name}.service"
-
-echo "Removing sysusers config..."
-
-if [ "${owns_identity}" = true ]; then
-    rm -f "${installed_sysusers}"
-else
-    echo "Installed sysusers policy does not match; leaving it unchanged."
+if [[ $load_state == loaded && $active != inactive ]]; then
+	systemctl stop "$unit"
 fi
 
-{{- if not .Journald }}
-
-if [ -f "/etc/logrotate.d/${name}" ] || [ -L "/etc/logrotate.d/${name}" ]; then
-    echo "Removing logrotate config..."
-    rm -f "/etc/logrotate.d/${name}"
-fi
-{{- end }}
-
-echo "Reloading daemon..."
-systemctl daemon-reload
-systemctl reset-failed "${name}" 2>/dev/null || true
-
-if [ "${owns_identity}" = true ]; then
-    echo "Removing mksvc user and group..."
-
-    if id "${name}" &>/dev/null; then
-        userdel "${name}"
-    fi
-
-    if getent group "${name}" &>/dev/null; then
-        groupdel "${name}"
-    fi
-
-else
-    echo "Identity ownership could not be verified, leaving user and group unchanged."
+if [[ $enabled == enabled || $enabled == enabled-runtime ]]; then
+	systemctl --no-reload disable "$unit"
 fi
 
-echo "Uninstall complete. Application files were left in place."
+for link in "$unit_link" "$policy_link" "$rotation_link"; do
+	if [[ -L $link ]]; then
+		rm -- "$link"
+	fi
+done
+
+if [[ $load_state == loaded ]]; then
+	systemctl daemon-reload
+fi
+
+if [[ $origin == created ]]; then
+	if [[ -n $uid ]]; then
+		userdel "$name"
+	fi
+
+	# userdel can also remove the private group.
+	remaining_group=$(lookup group "$name")
+	if [[ -n $remaining_group ]]; then
+		groupdel "$name"
+	fi
+
+	rm -- "$record"
+elif [[ $origin == legacy ]]; then
+	echo "Keeping the pre-existing account ${name} and its installation record."
+fi
+
+echo 'Uninstall complete. Application files were left in place.'

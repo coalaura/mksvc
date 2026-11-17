@@ -51,7 +51,8 @@
 {{.B}}CONFIGURATION REFERENCE{{.R}}
    {{.B}}Network Access{{.R}} (--network)
        Controls IPv4/IPv6 networking. When disabled, creates a private network
-       namespace with only loopback, blocking all external communication.
+       namespace with only loopback. Accessible filesystem Unix sockets can
+       still communicate with services outside that namespace.
 
        {{.U}}Enable:{{.R}}  Web servers, APIs, database clients, anything using TCP/UDP.
        {{.U}}Disable:{{.R}} File processors, offline cron jobs, local-only tools.
