@@ -14,7 +14,6 @@ policy="${conf_dir}/${name}.conf"
 unit_link="/etc/systemd/system/${unit}"
 policy_link="/etc/sysusers.d/${name}.conf"
 rotation_link="/etc/logrotate.d/${name}"
-record="${conf_dir}/.mksvc-install"
 runtime_wanted=no
 runtime_dir="/run/${name}"
 
@@ -163,57 +162,23 @@ read_unit_state() {
 	esac
 }
 
-save_record() (
-	local fingerprint=$1 unit_digest=${2:-pending} tmp
+check_policy() {
+	local expected actual vendor_dir
 
-	tmp=$(mktemp -- "${record}.XXXXXXXX")
-	trap 'rm -f -- "$tmp"' EXIT
+	check_regular_file "$policy"
+	check_trusted_path "$policy"
 
-	printf 'v1 %s %s %s %s %s %s %s %s\n' "$path" "$name" "$origin" "$uid" "$gid" "$fingerprint" "$unit_digest" "$runtime_wanted" > "$tmp"
-	mv -fT -- "$tmp" "$record"
-)
-
-valid_fingerprint() {
-	[[ $1 == pending || $1 =~ ^[0-9a-f]{64}$ ]]
-}
-
-read_record() {
-	local version deployment account extra
-
-	origin=''
-	saved_uid=''
-	saved_gid=''
-	applied=''
-	applied_unit=''
-	saved_runtime=''
-
-	if ! exists "$record"; then
-		return 0
+	expected='u example - "Example Service" /opt/example /sbin/nologin'
+	actual=$(awk 'NF && $1 !~ /^#/ {print}' "$policy")
+	if [[ $actual != "$expected" ]]; then
+		refuse "sysusers policy does not match this deployment: ${policy}"
 	fi
 
-	check_regular_file "$record"
-	check_trusted_path "$record"
-	IFS=' ' read -r version deployment account origin saved_uid saved_gid applied applied_unit saved_runtime extra < "$record"
-
-	if [[ $version != v1 || $deployment != "$path" || $account != "$name" || -n $extra ]]; then
-		refuse "invalid installation record: ${record}"
-	fi
-
-	if [[ $origin != created && $origin != legacy ]]; then
-		refuse "invalid identity origin: ${record}"
-	fi
-
-	if [[ ! $saved_uid =~ ^[1-9][0-9]*$ || ! $saved_gid =~ ^[1-9][0-9]*$ ]]; then
-		refuse "invalid identity in ${record}"
-	fi
-
-	if ! valid_fingerprint "$applied" || ! valid_fingerprint "$applied_unit"; then
-		refuse "invalid fingerprint in ${record}"
-	fi
-
-	if [[ $saved_runtime != yes && $saved_runtime != no ]]; then
-		refuse "invalid runtime flag in ${record}"
-	fi
+	for vendor_dir in /run/sysusers.d /usr/local/lib/sysusers.d /usr/lib/sysusers.d; do
+		if exists "${vendor_dir}/${name}.conf"; then
+			refuse "conflicting sysusers policy: ${vendor_dir}/${name}.conf"
+		fi
+	done
 }
 
 lookup() {
@@ -234,6 +199,10 @@ read_identity() {
 	gid=''
 
 	if [[ -n $group_entry ]]; then
+		if [[ -L $policy_link && $(getent -s files group "$name") != "$group_entry" ]]; then
+			refuse "not a local group: ${name}"
+		fi
+
 		IFS=: read -r group unused gid members <<< "$group_entry"
 		if [[ $group != "$name" || -n $members ]] || ! dedicated_id "$gid"; then
 			refuse "group is not dedicated to ${name}"
@@ -241,6 +210,10 @@ read_identity() {
 	fi
 
 	if [[ -n $passwd_entry ]]; then
+		if [[ -L $policy_link && $(getent -s files passwd "$name") != "$passwd_entry" ]]; then
+			refuse "not a local user: ${name}"
+		fi
+
 		IFS=: read -r user unused uid primary unused home shell <<< "$passwd_entry"
 		if [[ $user != "$name" || $primary != "$gid" || $home != "$path" ]] || ! dedicated_id "$uid"; then
 			refuse "unexpected account for ${name}"
@@ -271,27 +244,21 @@ read_identity() {
 }
 
 check_identity() {
+	if [[ $action == setup || -L $policy_link ]]; then
+		check_policy
+	fi
+
 	read_identity
 
-	if [[ -n $origin ]]; then
-		if [[ ( -n $uid && $uid != "$saved_uid" ) || ( -n $gid && $gid != "$saved_gid" ) ]]; then
-			refuse 'recorded UID/GID no longer matches'
-		fi
-
-		if [[ $action == setup || $origin == legacy ]] && [[ -z $uid || -z $gid ]]; then
-			refuse 'recorded identity is missing'
-		fi
-	elif [[ -n $uid || -n $gid ]]; then
-		if [[ -z $uid || -z $gid || ! -L $policy_link || ! -L $unit_link || $load_state != loaded ]]; then
+	if [[ $action == setup && ( -n $uid || -n $gid ) ]]; then
+		if [[ ! -L $policy_link || -z $uid || -z $gid ]]; then
 			refuse "refusing to adopt existing user or group ${name}"
 		fi
-
-		origin=legacy
 	fi
 }
 
 check_runtime_dir() {
-	if [[ $runtime_wanted != yes && $saved_runtime != yes && $loaded_runtime != "$name" ]]; then
+	if [[ $runtime_wanted != yes && $loaded_runtime != "$name" ]]; then
 		return 0
 	fi
 
@@ -299,7 +266,7 @@ check_runtime_dir() {
 		return 0
 	fi
 
-	if [[ $saved_runtime != yes && ( $origin != legacy || $loaded_runtime != "$name" ) ]]; then
+	if [[ ! -L $policy_link || $loaded_runtime != "$name" ]]; then
 		refuse "runtime directory already in use: ${runtime_dir}"
 	fi
 
@@ -310,9 +277,8 @@ check_runtime_dir() {
 
 check_deployment
 read_unit_state
-read_record
 
-if [[ $action == uninstall && -z $origin && ! -L $unit_link && ! -L $policy_link && ! -L $rotation_link ]]; then
+if [[ $action == uninstall && ! -L $unit_link && ! -L $policy_link && ! -L $rotation_link ]]; then
 	echo 'Already uninstalled.'
 	exit 0
 fi
@@ -327,33 +293,17 @@ for source in "$unit_file" "$policy" "${conf_dir}/${name}_logs.conf"; do
 	fi
 done
 
-if [[ $origin == created ]]; then
-	if [[ -n $uid ]]; then
-		if ! command -v userdel >/dev/null; then
-			refuse 'missing userdel'
-		fi
-
-		if [[ $(getent -s files passwd "$name") != "$(getent passwd "$name")" ]]; then
-			refuse "not a local user: ${name}"
-		fi
+if [[ -L $policy_link ]]; then
+	if [[ -n $uid ]] && ! command -v userdel >/dev/null; then
+		refuse 'missing userdel'
 	fi
 
-	if [[ -n $gid ]]; then
-		if ! command -v groupdel >/dev/null; then
-			refuse 'missing groupdel'
-		fi
-
-		if [[ $(getent -s files group "$name") != "$(getent group "$name")" ]]; then
-			refuse "not a local group: ${name}"
-		fi
+	if [[ -n $gid ]] && ! command -v groupdel >/dev/null; then
+		refuse 'missing groupdel'
 	fi
 fi
 
 phase='uninstall (changes may already have been applied)'
-
-if [[ $origin == legacy && ! -f $record ]]; then
-	save_record pending
-fi
 
 if [[ $load_state == loaded && $active != inactive ]]; then
 	systemctl stop "$unit"
@@ -363,7 +313,7 @@ if [[ $enabled == enabled || $enabled == enabled-runtime ]]; then
 	systemctl --no-reload disable "$unit"
 fi
 
-for link in "$unit_link" "$policy_link" "$rotation_link"; do
+for link in "$unit_link" "$rotation_link"; do
 	if [[ -L $link ]]; then
 		rm -- "$link"
 	fi
@@ -373,20 +323,22 @@ if [[ $load_state == loaded ]]; then
 	systemctl daemon-reload
 fi
 
-if [[ $origin == created ]]; then
+# Keep the verified policy link until account removal succeeds so a retry
+# can finish even if userdel succeeded and groupdel failed.
+if [[ -L $policy_link ]]; then
 	if [[ -n $uid ]]; then
 		userdel "$name"
 	fi
 
 	# userdel can also remove the private group.
-	remaining_group=$(lookup group "$name")
-	if [[ -n $remaining_group ]]; then
-		groupdel "$name"
+	if [[ -n $gid ]]; then
+		remaining_group=$(lookup group "$name")
+		if [[ -n $remaining_group ]]; then
+			groupdel "$name"
+		fi
 	fi
 
-	rm -- "$record"
-elif [[ $origin == legacy ]]; then
-	echo "Keeping the pre-existing account ${name} and its installation record."
+	rm -- "$policy_link"
 fi
 
 echo 'Uninstall complete. Application files were left in place.'

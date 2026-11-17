@@ -15,13 +15,6 @@ for file in "$binary" "${policy_files[@]}" "${private_files[@]}"; do
 	check_trusted_path "$file"
 done
 
-# Do not ask sysusers to interpret a stale policy for a different deployment.
-expected_policy='u {{ .Name }} - "{{ .Label }} Service" {{ .Path }} /sbin/nologin'
-actual_policy=$(awk 'NF && $1 !~ /^#/ {print}' "$policy")
-if [[ $actual_policy != "$expected_policy" ]]; then
-	refuse "sysusers policy does not match this deployment: ${policy}"
-fi
-
 check_directory_tree /etc/systemd/system
 check_directory_tree /etc
 
@@ -41,12 +34,6 @@ while [[ $parent != / ]]; do
 	fi
 
 	parent=$(dirname -- "$parent")
-done
-
-for vendor_dir in /run/sysusers.d /usr/local/lib/sysusers.d /usr/lib/sysusers.d; do
-	if exists "${vendor_dir}/${name}.conf"; then
-		refuse "conflicting sysusers policy: ${vendor_dir}/${name}.conf"
-	fi
 done
 
 if [[ -z $uid ]] && ! command -v systemd-sysusers >/dev/null; then
@@ -77,12 +64,22 @@ fi
 {{ template "check_logging" . }}
 {{- end }}
 
-# Hash contents, not timestamps: regeneration and permission-only repairs do
-# not by themselves require restarting an otherwise healthy service.
-fingerprint=$(sha256sum -- "$binary" "$unit_file"{{ if .EnvFile }} "$env_file"{{ end }} | sha256sum)
-fingerprint=${fingerprint%% *}
-unit_digest=$(sha256sum -- "$unit_file")
-unit_digest=${unit_digest%% *}
+# Permission repairs do not change mtimes. Compare inputs with the running
+# process, even if the manager has already reloaded the unit.
+restart_needed=$needs_reload
+if [[ $active == active ]]; then
+	started=$(LC_ALL=C TZ=UTC systemctl show --property=ExecMainStartTimestamp --value --timestamp=us "$unit")
+	main_pid=$(unit_property MainPID)
+
+	if [[ -z $started || $main_pid == 0 ]]; then
+		restart_needed=yes
+	else
+		changed=$(LC_ALL=C TZ=UTC find "$binary" "$unit_file"{{ if .EnvFile }} "$env_file"{{ end }} -newermt "$started" -print -quit)
+		if [[ -n $changed || $(readlink -- "/proc/${main_pid}/exe") == "${binary} (deleted)" ]]; then
+			restart_needed=yes
+		fi
+	fi
+fi
 
 set_permissions() {
 	local target=$1 wanted_owner=$2 wanted_mode=$3 metadata owner mode
@@ -139,15 +136,7 @@ if [[ -z $uid ]]; then
 	if [[ -z $uid || -z $gid ]]; then
 		refuse 'sysusers did not create the expected identity'
 	fi
-
-	origin=created
 fi
-
-if [[ ! -f $record ]]; then
-	save_record pending
-fi
-
-set_permissions "$record" 0:0 600
 {{- if .WritableFiles }}
 
 if [[ ! -d $data_dir ]]; then
@@ -180,24 +169,20 @@ if [[ ! -L $unit_link ]]; then
 	needs_reload=yes
 fi
 
-if [[ $needs_reload == yes || $load_state == not-found || $applied_unit != "$unit_digest" ]]; then
+if [[ $needs_reload == yes || $load_state == not-found ]]; then
 	systemctl daemon-reload
 fi
 {{- if or (not .HasInstallSection) .InstallCustom }}
 
-if [[ $enabled != enabled || $applied_unit != "$unit_digest" ]]; then
+if [[ $enabled != enabled || $needs_reload == yes ]]; then
 	systemctl enable "$unit_file"
 fi
 {{- end }}
 
 if [[ $active != active ]]; then
 	systemctl start "$unit"
-elif [[ $applied != "$fingerprint" || $restore_mounts == yes ]]; then
+elif [[ $restart_needed == yes || $restore_mounts == yes ]]; then
 	systemctl restart "$unit"
-fi
-
-if [[ $applied != "$fingerprint" || $saved_runtime != "$runtime_wanted" ]]; then
-	save_record "$fingerprint" "$unit_digest"
 fi
 
 echo "Setup complete: ${unit}"

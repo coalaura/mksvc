@@ -32,9 +32,9 @@ sudo bash conf/setup.sh
 
 Stage the executable and configuration as root. The service root, `conf/`, their ancestors and trusted input files must already be root-owned and not writable by group or others. The service must be able to traverse the ancestors. Setup sets the final permissions and symlinks the systemd unit, sysusers policy and optional logrotate rule from `/etc` to their `root:root` sources in `conf/` (mode `0644`). Regenerate as root from the same directory, then rerun `conf/setup.sh`.
 
-Both scripts check for conflicts before changing permissions, accounts, links or the running service. Setup repairs permissions and missing managed resources, starts an inactive unit, and restarts an active unit when its executable, unit file or configured environment file has changed. Repeating uninstall leaves the application files in place. A failure while applying changes (for example, a service that fails to start) is reported separately; the scripts are not transactions.
+Both scripts check for conflicts before changing permissions, accounts, links or the running service. Setup repairs permissions and missing managed resources and starts an inactive unit. For an active unit, it checks systemd's reload state, the running executable and whether the binary, unit or environment file was modified after the process started. Permission-only repairs do not require a restart. If an upload preserves old timestamps, touch the changed files before running setup. A failure while applying changes (for example, a service that fails to start) is reported separately; the scripts are not transactions.
 
-Keep `conf/.mksvc-install` with the deployment. It records the installed UID/GID and last applied configuration. An existing account is accepted without a record only for a matching older linked installation. Uninstall preserves such legacy accounts; it deletes accounts recorded as created by setup. Retained application data can still carry the deleted numeric UID/GID; secure it before those IDs are reused.
+You can replace `conf/` at the same path and rerun setup. Neither script needs an installation record. The link from `/etc/sysusers.d/<name>.conf` to this deployment's validated policy identifies the managed account. Uninstall removes the matching dedicated local user and group, including those from older linked installations. It leaves application files in place; secure retained files before their numeric UID/GID is reused.
 
 ### Generated Artifacts
 
@@ -44,7 +44,7 @@ The tool creates a `conf/` directory containing:
 2. **`my-app.conf`**: Sysusers configuration to create the `my-app` user/group.
 3. **`my-app_logs.conf`**: Logrotate configuration, generated only when file logging is selected (`--file-logs`).
 4. **`setup.sh`**: An idempotent script to install root-owned units, create users and configure log rotation.
-5. **`uninstall.sh`**: Removes installed configuration and identities created by mksvc.
+5. **`uninstall.sh`**: Removes the installed links and their matching service account.
 6. **`svc.yml`**: Saved configuration for subsequent runs.
 
 ### Logging

@@ -9,33 +9,17 @@ for source in "$unit_file" "$policy" "${conf_dir}/${name}_logs.conf"; do
 	fi
 done
 
-if [[ $origin == created ]]; then
-	if [[ -n $uid ]]; then
-		if ! command -v userdel >/dev/null; then
-			refuse 'missing userdel'
-		fi
-
-		if [[ $(getent -s files passwd "$name") != "$(getent passwd "$name")" ]]; then
-			refuse "not a local user: ${name}"
-		fi
+if [[ -L $policy_link ]]; then
+	if [[ -n $uid ]] && ! command -v userdel >/dev/null; then
+		refuse 'missing userdel'
 	fi
 
-	if [[ -n $gid ]]; then
-		if ! command -v groupdel >/dev/null; then
-			refuse 'missing groupdel'
-		fi
-
-		if [[ $(getent -s files group "$name") != "$(getent group "$name")" ]]; then
-			refuse "not a local group: ${name}"
-		fi
+	if [[ -n $gid ]] && ! command -v groupdel >/dev/null; then
+		refuse 'missing groupdel'
 	fi
 fi
 
 phase='uninstall (changes may already have been applied)'
-
-if [[ $origin == legacy && ! -f $record ]]; then
-	save_record pending
-fi
 
 if [[ $load_state == loaded && $active != inactive ]]; then
 	systemctl stop "$unit"
@@ -45,7 +29,7 @@ if [[ $enabled == enabled || $enabled == enabled-runtime ]]; then
 	systemctl --no-reload disable "$unit"
 fi
 
-for link in "$unit_link" "$policy_link" "$rotation_link"; do
+for link in "$unit_link" "$rotation_link"; do
 	if [[ -L $link ]]; then
 		rm -- "$link"
 	fi
@@ -55,20 +39,22 @@ if [[ $load_state == loaded ]]; then
 	systemctl daemon-reload
 fi
 
-if [[ $origin == created ]]; then
+# Keep the verified policy link until account removal succeeds so a retry
+# can finish even if userdel succeeded and groupdel failed.
+if [[ -L $policy_link ]]; then
 	if [[ -n $uid ]]; then
 		userdel "$name"
 	fi
 
 	# userdel can also remove the private group.
-	remaining_group=$(lookup group "$name")
-	if [[ -n $remaining_group ]]; then
-		groupdel "$name"
+	if [[ -n $gid ]]; then
+		remaining_group=$(lookup group "$name")
+		if [[ -n $remaining_group ]]; then
+			groupdel "$name"
+		fi
 	fi
 
-	rm -- "$record"
-elif [[ $origin == legacy ]]; then
-	echo "Keeping the pre-existing account ${name} and its installation record."
+	rm -- "$policy_link"
 fi
 
 echo 'Uninstall complete. Application files were left in place.'
