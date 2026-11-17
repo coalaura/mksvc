@@ -30,7 +30,7 @@ mksvc my-app /opt/my-app -i
 sudo bash conf/setup.sh
 ```
 
-Setup makes the deployed executable and generated configuration root-owned. The systemd unit, sysusers policy and logrotate rule are symlinked from `/etc` to their source files in `conf/`, which are owned by `root:root` with mode `0644`. Run future regeneration as root from the same service directory, then rerun `conf/setup.sh`.
+Setup makes the deployed executable and generated configuration root-owned. The systemd unit, sysusers policy and optional logrotate rule are symlinked from `/etc` to their source files in `conf/`, which are owned by `root:root` with mode `0644`. Run future regeneration as root from the same service directory, then rerun `conf/setup.sh`.
 
 ### Generated Artifacts
 
@@ -38,26 +38,26 @@ The tool creates a `conf/` directory containing:
 
 1. **`my-app.service`**: The Systemd unit file (Hardened).
 2. **`my-app.conf`**: Sysusers configuration to create the `my-app` user/group.
-3. **`my-app_logs.conf`**: Logrotate configuration for file logging (omitted with `--journald`).
+3. **`my-app_logs.conf`**: Logrotate configuration, generated only when file logging is selected (`--file-logs`).
 4. **`setup.sh`**: An idempotent script to install root-owned units, create users and configure log rotation.
 5. **`uninstall.sh`**: Removes installed configuration and identities created by mksvc.
 6. **`svc.yml`**: Saved configuration for subsequent runs.
 
 ### Logging
 
-File logging remains the default. Standard output and error append to `logs/<name>.log` or `<name>.log` with `--no-log-dir`. Setup preserves existing log contents and rotates logs as root. The log directory is root-owned and cannot be modified by the service; the active log file is owned by `root:<service>` with mode `0660`, allowing the service to write its contents without replacing its pathname. Only that file, not the entire log directory, is writable inside the sandbox. Applications that create additional log files should use stdout/stderr instead.
-
-The rotation policy is **daily or above 50 MiB** (`daily` plus `maxsize 50M`), retaining seven rotations, with compression delayed by one rotation. The host's existing logrotate job evaluates this policy; ensure it is enabled and includes `/etc/logrotate.d`. Size-based rotation only happens when that job runs, so a daily schedule cannot rotate earlier in the day when the log crosses 50 MiB. Configure the host's existing schedule more frequently if earlier size-based rotation is needed. This is a threshold, not a hard size cap. `copytruncate` preserves systemd's open log descriptor but can lose writes between copying and truncating. File logging requires logrotate; setup validates the configuration before stopping the application.
-
-Use `--journald` to send stdout/stderr to the system journal instead. Interactive mode asks about journald first and only asks file-logging questions when it is disabled. This choice is saved in `conf/svc.yml`; `--no-journald` switches back to files.
+New services send stdout and stderr to the systemd journal by default. No logrotate installation is required. Regeneration keeps the logging mode saved in `conf/svc.yml`; older saved configurations without a `journald` key keep file logging. Use `--file-logs` to enable file logging or `--no-file-logs` to switch back to the journal, then rerun setup.
 
 ```bash
-mksvc my-app /opt/my-app --journald
+mksvc my-app /opt/my-app
 sudo bash conf/setup.sh
 journalctl -u my-app.service
 ```
 
 Journald mode creates no log files or logrotate configuration and removes a stale generated `conf/<name>_logs.conf`. Setup removes an installed rotation symlink pointing to that generated file (even if dangling), or a regular rule bearing mksvc's ownership header, while leaving existing logs intact. If switching directly from an older release with an unmarked regular rotation rule, review and remove `/etc/logrotate.d/<name>` before running setup; setup refuses to remove an unrecognized rule automatically.
+
+With file logging, stdout and stderr append to `logs/<name>.log` or `<name>.log` with `--no-log-dir`. Setup preserves existing log contents. The log directory is root-owned and cannot be modified by the service; the active log file is owned by `root:<service>` with mode `0660`, allowing the service to write its contents without replacing its pathname. Only that file, not the entire log directory, is writable inside the sandbox. Applications that create additional log files should use stdout/stderr instead.
+
+The file rotation policy is **daily or above 50 MiB** (`daily` plus `maxsize 50M`), retaining seven rotations, with compression delayed by one rotation. The host's existing logrotate job evaluates this policy; ensure it is enabled and includes `/etc/logrotate.d`. Size-based rotation only happens when that job runs, so a daily schedule cannot rotate earlier in the day when the log crosses 50 MiB. Configure the host's existing schedule more frequently if earlier size-based rotation is needed. This is a threshold, not a hard size cap. `copytruncate` preserves systemd's open log descriptor but can lose writes between copying and truncating. File logging requires logrotate; setup validates the configuration before stopping the application.
 
 ## Customization & Persistence
 

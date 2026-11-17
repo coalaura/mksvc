@@ -34,8 +34,8 @@
        {{.B}}--devices{{.R}}             Hardware device access           (default: off)
        {{.B}}--full-devices{{.R}}        Unrestricted device access       (default: off)
        {{.B}}--subprocess{{.R}}          Access to external executables   (default: off)
-       {{.B}}--log-dir{{.R}}             Separate logs subdirectory       (default: on)
-       {{.B}}--journald{{.R}}            Journal instead of log files     (default: off)
+       {{.B}}--log-dir{{.R}}             Separate directory for file logs (default: on)
+       {{.B}}--file-logs{{.R}}           Log files instead of the journal (default: off)
 
    {{.U}}Advanced Security{{.R}}
        {{.B}}--localhost-only{{.R}}      Restrict network to localhost    (default: off)
@@ -136,10 +136,10 @@
        {{.U}}Enable:{{.R}}  Apps shelling out to ffmpeg, git, imagemagick.
        {{.U}}Disable:{{.R}} Self-contained binaries that do not require external tools.
 
-    {{.B}}Journald{{.R}} (--journald, --no-journald)
-        Sends stdout/stderr to the system journal instead of files. Skips file
-        logging questions, log creation and logrotate generation/installation.
-        View logs with journalctl -u <name>.service. Default: off (file logging).
+    {{.B}}File Logs{{.R}} (--file-logs, --no-file-logs)
+        Sends stdout/stderr to files rotated by logrotate. New services default
+        to the system journal; view logs with journalctl -u <name>.service.
+        Use --no-file-logs to switch an existing service back to the journal.
         Existing logs are retained when switching backends.
 
     {{.B}}Separate Logs Directory{{.R}} (--log-dir)
@@ -152,7 +152,7 @@
          This is not a hard size cap. Keeps 7 rotations.
          copytruncate can lose writes during its copy/truncate window.
         Requires a canonical path with root-owned, non-writable ancestors.
-        Ignored with --journald.
+        Ignored unless file logging is enabled.
 
        {{.U}}Enable:{{.R}}  Cleaner project root, easier to .gitignore.
        {{.U}}Disable:{{.R}} Single-file deployments, legacy apps expecting logs in root.

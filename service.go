@@ -145,6 +145,7 @@ func NewServiceConfig(name, path string) *ServiceConfig {
 		FullDevices:     false,
 		Subprocess:      false,
 		SeparateLogDir:  true,
+		Journald:        true,
 
 		LocalhostOnly: false,
 		PrivateUsers:  false,

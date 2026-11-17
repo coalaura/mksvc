@@ -36,7 +36,7 @@ type CLI struct {
 	FullDevices     *bool  `name:"full-devices" negatable:"" help:"Unrestricted device access."`
 	Subprocess      *bool  `name:"subprocess" negatable:"" help:"Allow access to common external executables."`
 	SeparateLogDir  *bool  `name:"log-dir" negatable:"" help:"Separate logs subdirectory."`
-	Journald        *bool  `name:"journald" negatable:"" help:"Send output to journald instead of log files."`
+	FileLogs        *bool  `name:"file-logs" negatable:"" help:"Write output to log files with logrotate instead of the system journal."`
 
 	// Advanced security
 	LocalhostOnly *bool `name:"localhost-only" negatable:"" help:"Restrict network to localhost."`
@@ -232,8 +232,8 @@ func applyOverrides(cfg *ServiceConfig, cli *CLI) {
 		cfg.SeparateLogDir = *cli.SeparateLogDir
 	}
 
-	if cli.Journald != nil {
-		cfg.Journald = *cli.Journald
+	if cli.FileLogs != nil {
+		cfg.Journald = !*cli.FileLogs
 	}
 
 	// Advanced security
@@ -381,10 +381,10 @@ func runInteractive(cfg *ServiceConfig) {
 	}
 
 	// Output section
-	cfg.Journald = ask(
-		"Journald",
-		"Send output to the system journal instead of creating log files and logrotate rules.",
-		cfg.Journald,
+	cfg.Journald = !ask(
+		"File Logs",
+		"Write output to log files with logrotate instead of the system journal.",
+		!cfg.Journald,
 	)
 
 	if !cfg.Journald {
@@ -472,9 +472,11 @@ func dryRun(cfg *ServiceConfig, confDir string) {
 	log.Printf("  Devices:          %v\n", cfg.Devices)
 	log.Printf("  FullDevices:      %v\n", cfg.FullDevices)
 	log.Printf("  Subprocess:       %v\n", cfg.Subprocess)
-	log.Printf("  Journald:         %v\n", cfg.Journald)
 
-	if !cfg.Journald {
+	if cfg.Journald {
+		log.Println("  Logging:          journald")
+	} else {
+		log.Println("  Logging:          files (logrotate)")
 		log.Printf("  SeparateLogDir:   %v\n", cfg.SeparateLogDir)
 	}
 
